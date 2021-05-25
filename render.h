@@ -10,4 +10,8 @@ struct opengl {
 
     float *Vertices;
     int VertexCount;
+
+    int GridW;
+    int GridH;
+    float *Field;
 };

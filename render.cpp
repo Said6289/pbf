@@ -50,6 +50,10 @@ InitializeOpenGL(opengl *OpenGL, int ParticleCount) {
 
     OpenGL->VertexCount = 4 * 8192;
     OpenGL->Vertices = (float *)malloc(2 * sizeof(float) * OpenGL->VertexCount);
+
+    OpenGL->GridW = 150;
+    OpenGL->GridH = 200;
+    OpenGL->Field = (float *)malloc((OpenGL->GridW + 1) * (OpenGL->GridH + 1) * sizeof(float));
 }
 
 static void
@@ -98,42 +102,28 @@ RenderMarchingSquares(opengl *OpenGL, sim *Sim)
     float WorldW = WORLD_WIDTH;
     float WorldH = WORLD_HEIGHT;
 
-    int GridW = 150;
-    int GridH = 200;
     float Threshold = 0.3f;
+
+    int GridW = OpenGL->GridW;
+    int GridH = OpenGL->GridH;
+    float *Field = OpenGL->Field;
 
     float CellW = WorldW / GridW;
     float CellH = WorldH / GridH;
 
-    int LineIndex = 0;
-
     float X0 = -0.5f * WorldW;
 
-    for (int XIndex = 0; XIndex < GridW; ++XIndex) {
+    for (int XIndex = 0; XIndex < GridW + 1; ++XIndex) {
 
         float Y0 = -0.5f * WorldH;
 
-        for (int YIndex = 0; YIndex < GridH; ++YIndex) {
+        for (int YIndex = 0; YIndex < GridH + 1; ++YIndex) {
 
-            v2 Corners[4];
-            Corners[0] = {X0, Y0};
-            Corners[1] = {X0 + CellW, Y0};
-            Corners[2] = {X0 + CellW, Y0 + CellH};
-            Corners[3] = {X0, Y0 + CellH};
-
-            float F[4];
-
-            char FieldIndex = 0;
-
-            for (int CornerIndex = 0;
-                 CornerIndex < 4;
-                 ++CornerIndex)
+            float FieldValue = 0.0f;
             {
-                v2 Corner = Corners[CornerIndex];
+                v2 P = V2(X0, Y0);
 
-                float FieldValue = 0.0f;
-
-                hash_grid_cell CenterCell = GetCell(HashGrid, Corner);
+                hash_grid_cell CenterCell = GetCell(HashGrid, P);
 
                 for (int Row = 0; Row < 3; ++Row) {
                     for (int Col = 0; Col < 3; ++Col) {
@@ -156,17 +146,52 @@ RenderMarchingSquares(opengl *OpenGL, sim *Sim)
                             float MY = Particle.P.y;
                             float MR = PARTICLE_RADIUS;
 
-                            float dX = MX - Corner.x;
-                            float dY = MY - Corner.y;
+                            float dX = MX - P.x;
+                            float dY = MY - P.y;
                             float R2 = dX*dX + dY*dY;
 
                             FieldValue += (MR * MR) / (R2);
                         }
                     }
                 }
+            }
 
-                F[CornerIndex] = FieldValue;
-                if (FieldValue >= Threshold) {
+            Field[XIndex + YIndex * (GridW + 1)] = FieldValue;
+
+            Y0 += CellH;
+        }
+
+        X0 += CellW;
+    }
+
+    int LineIndex = 0;
+
+    X0 = -0.5f * WorldW;
+
+    for (int XIndex = 0; XIndex < GridW; ++XIndex) {
+
+        float Y0 = -0.5f * WorldH;
+
+        for (int YIndex = 0; YIndex < GridH; ++YIndex) {
+
+            float F[4];
+            v2 Corners[4];
+
+            Corners[0] = {X0, Y0};
+            Corners[1] = {X0 + CellW, Y0};
+            Corners[2] = {X0 + CellW, Y0 + CellH};
+            Corners[3] = {X0, Y0 + CellH};
+
+            char FieldIndex = 0;
+            for (int CornerIndex = 0; CornerIndex < 4; ++CornerIndex) {
+                int Bit0 = (CornerIndex & 1);
+                int Bit1 = (CornerIndex >> 1);
+
+                int XOffset = (Bit0 + Bit1) & 1;
+                int YOffset = Bit1;
+
+                F[CornerIndex] = Field[(XIndex + XOffset) + (YIndex + YOffset) * (GridW + 1)];
+                if (F[CornerIndex] >= Threshold) {
                     FieldIndex |= (1 << (3 - CornerIndex));
                 }
             }
