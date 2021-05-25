@@ -1,0 +1,349 @@
+static const char *VertexShaderCode = R"glsl(
+    attribute vec2 position;
+    void main()
+    {
+        gl_Position = vec4(position.x, position.y, 0.0, 1.0);
+    }
+)glsl";
+
+static const char *FragmentShaderCode = R"glsl(
+    void main()
+    {
+        gl_FragColor = vec4(0.0, 1.0, 1.0, 1.0);
+    }
+)glsl";
+
+static void
+InitializeOpenGL(opengl *OpenGL, int ParticleCount) {
+    GLint status;
+
+    GLuint VertexShader = glCreateShader(GL_VERTEX_SHADER);
+    glShaderSource(VertexShader, 1, &VertexShaderCode, 0);
+    glCompileShader(VertexShader);
+    glGetShaderiv(VertexShader, GL_COMPILE_STATUS, &status);
+    assert(status == GL_TRUE);
+
+    GLuint FragmentShader = glCreateShader(GL_FRAGMENT_SHADER);
+    glShaderSource(FragmentShader, 1, &FragmentShaderCode, 0);
+    glCompileShader(FragmentShader);
+    glGetShaderiv(FragmentShader, GL_COMPILE_STATUS, &status);
+    assert(status == GL_TRUE);
+
+    GLuint ShaderProgram = glCreateProgram();
+    glAttachShader(ShaderProgram, VertexShader);
+    glAttachShader(ShaderProgram, FragmentShader);
+    glLinkProgram(ShaderProgram);
+    glGetProgramiv(ShaderProgram, GL_LINK_STATUS, &status);
+    assert(status == GL_TRUE);
+
+    OpenGL->ShaderProgram = ShaderProgram;
+    glUseProgram(ShaderProgram);
+
+    GLuint VBO;
+    glGenBuffers(1, &VBO);
+    glBindBuffer(GL_ARRAY_BUFFER, VBO);
+    OpenGL->VBO = VBO;
+
+    GLint PosAttrib = glGetAttribLocation(ShaderProgram, "position");
+    glVertexAttribPointer(PosAttrib, 2, GL_FLOAT, GL_FALSE, 2 * sizeof(float), 0);
+    glEnableVertexAttribArray(PosAttrib);
+
+    OpenGL->VertexCount = 4 * 8192;
+    OpenGL->Vertices = (float *)malloc(2 * sizeof(float) * OpenGL->VertexCount);
+}
+
+static void
+PushLine(opengl *OpenGL, int Index, v2 P0, v2 P1)
+{
+    assert(Index * 2 <= OpenGL->VertexCount);
+    P0.x = 2 * P0.x / WORLD_WIDTH;
+    P0.y = 2 * P0.y / WORLD_HEIGHT;
+
+    P1.x = 2 * P1.x / WORLD_WIDTH;
+    P1.y = 2 * P1.y / WORLD_HEIGHT;
+
+    OpenGL->Vertices[2 * (Index * 2 + 0) + 0] = P0.x;
+    OpenGL->Vertices[2 * (Index * 2 + 0) + 1] = P0.y;
+
+    OpenGL->Vertices[2 * (Index * 2 + 1) + 0] = P1.x;
+    OpenGL->Vertices[2 * (Index * 2 + 1) + 1] = P1.y;
+}
+
+static v2
+FieldLerp(v2 P0, float F0, v2 P1, float F1, float Threshold)
+{
+    assert(F0 >= Threshold && F1 < Threshold);
+
+    float ResultX = (Threshold - F1) * (P1.x - P0.x) / (F1 - F0) + P1.x;
+    float ResultY = (Threshold - F1) * (P1.y - P0.y) / (F1 - F0) + P1.y;
+
+    v2 Result = {ResultX, ResultY};
+
+    return Result;
+}
+
+static void
+RenderMarchingSquares(opengl *OpenGL, sim *Sim)
+{
+    hash_grid HashGrid = Sim->HashGrid;
+    int ParticleCount = Sim->ParticleCount;
+    particle *Particles = Sim->Particles;
+
+    Clear(HashGrid);
+    for (int ParticleIndex = 0; ParticleIndex < ParticleCount; ++ParticleIndex) {
+        particle Particle = Particles[ParticleIndex];
+        AddElement(HashGrid, Particle.P, ParticleIndex);
+    }
+
+    float WorldW = WORLD_WIDTH;
+    float WorldH = WORLD_HEIGHT;
+
+    int GridW = 150;
+    int GridH = 200;
+    float Threshold = 0.3f;
+
+    float CellW = WorldW / GridW;
+    float CellH = WorldH / GridH;
+
+    int LineIndex = 0;
+
+    float X0 = -0.5f * WorldW;
+
+    for (int XIndex = 0; XIndex < GridW; ++XIndex) {
+
+        float Y0 = -0.5f * WorldH;
+
+        for (int YIndex = 0; YIndex < GridH; ++YIndex) {
+
+            v2 Corners[4];
+            Corners[0] = {X0, Y0};
+            Corners[1] = {X0 + CellW, Y0};
+            Corners[2] = {X0 + CellW, Y0 + CellH};
+            Corners[3] = {X0, Y0 + CellH};
+
+            float F[4];
+
+            char FieldIndex = 0;
+
+            for (int CornerIndex = 0;
+                 CornerIndex < 4;
+                 ++CornerIndex)
+            {
+                v2 Corner = Corners[CornerIndex];
+
+                float FieldValue = 0.0f;
+
+                hash_grid_cell CenterCell = GetCell(HashGrid, Corner);
+
+                for (int Row = 0; Row < 3; ++Row) {
+                    for (int Col = 0; Col < 3; ++Col) {
+                        int CellX = CenterCell.x - 1 + Col;
+                        int CellY = CenterCell.y - 1 + Row;
+
+                        if (!IsWithinBounds(HashGrid, CellX, CellY)) {
+                            continue;
+                        }
+
+                        hash_grid_cell Cell = GetCell(HashGrid, CellX, CellY);
+                        int ElementCount = GetElementCount(HashGrid, Cell);
+                        for (int ElementIndex = 0;
+                             ElementIndex < ElementCount;
+                             ++ElementIndex)
+                        {
+                            particle Particle = Particles[Cell.Data[ElementIndex]];
+
+                            float MX = Particle.P.x;
+                            float MY = Particle.P.y;
+                            float MR = PARTICLE_RADIUS;
+
+                            float dX = MX - Corner.x;
+                            float dY = MY - Corner.y;
+                            float R2 = dX*dX + dY*dY;
+
+                            FieldValue += (MR * MR) / (R2);
+                        }
+                    }
+                }
+
+                F[CornerIndex] = FieldValue;
+                if (FieldValue >= Threshold) {
+                    FieldIndex |= (1 << (3 - CornerIndex));
+                }
+            }
+
+            assert(FieldIndex >= 0 && FieldIndex < 16);
+
+            v2 P0 = {};
+            v2 P1 = {};
+
+#if 1
+#define L(I0, I1) FieldLerp(Corners[I0], F[I0], Corners[I1], F[I1], Threshold)
+#else
+#define L(I0, I1) {(Corners[I0].X + Corners[I1].X) * 0.5f, (Corners[I0].Y + Corners[I1].Y) * 0.5f}
+#endif
+
+#define LINE PushLine(OpenGL, LineIndex++, P0, P1)
+
+            switch (FieldIndex) {
+                case 5: {
+                    P0 = L(1, 0);
+                    P1 = L(3, 0);
+                    LINE;
+
+                    P0 = L(1, 2);
+                    P1 = L(3, 2);
+                    LINE;
+                } break;
+
+                case 6: {
+                    P0 = L(1, 0);
+                    P1 = L(2, 3);
+                    LINE;
+                } break;
+
+                case 7: {
+                    P0 = L(1, 0);
+                    P1 = L(3, 0);
+                    LINE;
+                } break;
+
+                case 8: {
+                    P0 = L(0, 1);
+                    P1 = L(0, 3);
+                    LINE;
+                } break;
+
+                case 9: {
+                    P0 = L(0, 1);
+                    P1 = L(3, 2);
+                    LINE;
+                } break;
+
+                case 10: {
+                    P0 = L(0, 1);
+                    P1 = L(2, 1);
+                    LINE;
+
+                    P0 = L(2, 3);
+                    P1 = L(0, 3);
+                    LINE;
+                } break;
+
+                case 11: {
+                    P0 = L(0, 1);
+                    P1 = L(2, 1);
+                    LINE;
+                } break;
+
+                case 4: {
+                    P0 = L(1, 0);
+                    P1 = L(1, 2);
+                    LINE;
+                } break;
+
+                case 3: {
+                    P0 = L(3, 0);
+                    P1 = L(2, 1);
+                    LINE;
+                } break;
+
+                case 12: {
+                    P0 = L(0, 3);
+                    P1 = L(1, 2);
+                    LINE;
+                } break;
+
+                case 13: {
+                    P0 = L(1, 2);
+                    P1 = L(3, 2);
+                    LINE;
+                } break;
+
+                case 2: {
+                    P0 = L(2, 1);
+                    P1 = L(2, 3);
+                    LINE;
+                } break;
+
+                case 14: {
+                    P0 = L(0, 3);
+                    P1 = L(2, 3);
+                    LINE;
+                } break;
+
+                case 1: {
+                    P0 = L(3, 0);
+                    P1 = L(3, 2);
+                    LINE;
+                } break;
+            }
+
+            Y0 += CellH;
+        }
+
+        X0 += CellW;
+    }
+
+    glBindBuffer(GL_ARRAY_BUFFER, OpenGL->VBO);
+    glBufferData(GL_ARRAY_BUFFER, LineIndex * 2 * 2 * sizeof(float), OpenGL->Vertices, GL_STREAM_DRAW);
+
+    glUseProgram(OpenGL->ShaderProgram);
+    glDrawArrays(GL_LINES, 0, LineIndex * 2);
+}
+
+static void
+Render(sim *Sim, opengl *OpenGL, float Width, float Height)
+{
+    glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
+    glClear(GL_COLOR_BUFFER_BIT);
+
+    float AspectRatio = (Width / Height);
+
+    particle *Particles = Sim->Particles;
+
+    float WorldW = WORLD_WIDTH;
+    float WorldH = WORLD_HEIGHT;
+
+    float WorldAspectRatio = WorldW / WorldH;
+
+    float X = 0.0f;
+    float Y = 0.0f;
+    float GlW = 0.0f;
+    float GlH = 0.0f;
+
+    v2 GlUnitsPerMeter = {};
+
+    if (WorldAspectRatio > AspectRatio)
+    {
+        GlW = 2.0f;
+        GlH = ((GlW * (WorldH / WorldW)) * AspectRatio);
+
+        X = -1.0f;
+
+        float Empty = 2.0f - GlH;
+        float HalfEmpty = Empty * 0.5f;
+
+        Y = HalfEmpty - 1.0f;
+    }
+    else
+    {
+        GlH = 2.0f;
+        GlW = ((GlH * (WorldW / WorldH)) / AspectRatio);
+
+        Y = -1.0f;
+
+        float Empty = 2.0f - GlW;
+        float HalfEmpty = Empty * 0.5f;
+
+        X = HalfEmpty - 1.0f;
+    }
+
+    X = 0.0f;
+    Y = 0.0f;
+    GlW = 2.0f;
+    GlH = 2.0f;
+    GlUnitsPerMeter.x = GlW / WorldW;
+    GlUnitsPerMeter.y = GlH / WorldH;
+
+    RenderMarchingSquares(OpenGL, Sim);
+}
