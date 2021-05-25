@@ -201,12 +201,7 @@ RenderMarchingSquares(opengl *OpenGL, sim *Sim)
             v2 P0 = {};
             v2 P1 = {};
 
-#if 1
 #define L(I0, I1) FieldLerp(Corners[I0], F[I0], Corners[I1], F[I1], Threshold)
-#else
-#define L(I0, I1) {(Corners[I0].X + Corners[I1].X) * 0.5f, (Corners[I0].Y + Corners[I1].Y) * 0.5f}
-#endif
-
 #define LINE PushLine(OpenGL, LineIndex++, P0, P1)
 
             switch (FieldIndex) {
