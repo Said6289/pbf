@@ -87,37 +87,13 @@ FieldLerp(v2 P0, float F0, v2 P1, float F1, float Threshold)
 }
 
 static void
-RenderMarchingSquares(opengl *OpenGL, sim *Sim)
+EvaluateFieldTile(hash_grid HashGrid, float WorldW, float WorldH, float CellW, float CellH, int GridW, float *Field, particle *Particles, int XStart, int YStart, int XEnd, int YEnd)
 {
-    hash_grid HashGrid = Sim->HashGrid;
-    int ParticleCount = Sim->ParticleCount;
-    particle *Particles = Sim->Particles;
+    for (int XIndex = XStart; XIndex < XEnd; ++XIndex) {
+        float X0 = -0.5f * WorldW + XIndex * CellW;
 
-    Clear(HashGrid);
-    for (int ParticleIndex = 0; ParticleIndex < ParticleCount; ++ParticleIndex) {
-        particle Particle = Particles[ParticleIndex];
-        AddElement(HashGrid, Particle.P, ParticleIndex);
-    }
-
-    float WorldW = WORLD_WIDTH;
-    float WorldH = WORLD_HEIGHT;
-
-    float Threshold = 0.3f;
-
-    int GridW = OpenGL->GridW;
-    int GridH = OpenGL->GridH;
-    float *Field = OpenGL->Field;
-
-    float CellW = WorldW / GridW;
-    float CellH = WorldH / GridH;
-
-    float X0 = -0.5f * WorldW;
-
-    for (int XIndex = 0; XIndex < GridW + 1; ++XIndex) {
-
-        float Y0 = -0.5f * WorldH;
-
-        for (int YIndex = 0; YIndex < GridH + 1; ++YIndex) {
+        for (int YIndex = YStart; YIndex < YEnd; ++YIndex) {
+            float Y0 = -0.5f * WorldH + YIndex * CellH;
 
             float FieldValue = 0.0f;
             {
@@ -155,18 +131,59 @@ RenderMarchingSquares(opengl *OpenGL, sim *Sim)
                     }
                 }
             }
-
             Field[XIndex + YIndex * (GridW + 1)] = FieldValue;
-
-            Y0 += CellH;
         }
+    }
+}
 
-        X0 += CellW;
+static void
+RenderMarchingSquares(opengl *OpenGL, sim *Sim)
+{
+    hash_grid HashGrid = Sim->HashGrid;
+    int ParticleCount = Sim->ParticleCount;
+    particle *Particles = Sim->Particles;
+
+    Clear(HashGrid);
+    for (int ParticleIndex = 0; ParticleIndex < ParticleCount; ++ParticleIndex) {
+        particle Particle = Particles[ParticleIndex];
+        AddElement(HashGrid, Particle.P, ParticleIndex);
+    }
+
+    float WorldW = WORLD_WIDTH;
+    float WorldH = WORLD_HEIGHT;
+
+    float Threshold = 0.3f;
+
+    int GridW = OpenGL->GridW;
+    int GridH = OpenGL->GridH;
+    float *Field = OpenGL->Field;
+
+    float CellW = WorldW / GridW;
+    float CellH = WorldH / GridH;
+
+    int TileSize = 32;
+    int TileCountX = ((GridW + 1) + TileSize - 1) / TileSize;
+    int TileCountY = ((GridH + 1) + TileSize - 1) / TileSize;
+    for (int TileX = 0; TileX < TileCountX; ++TileX) {
+        for (int TileY = 0; TileY < TileCountY; ++TileY) {
+
+            int XStart = TileX * TileSize;
+            int YStart = TileY * TileSize;
+
+            int XEnd = XStart + TileSize;
+            int YEnd = YStart + TileSize;
+
+            if (XEnd > (GridW + 1)) XEnd = (GridW + 1);
+            if (YEnd > (GridH + 1)) YEnd = (GridH + 1);
+
+            EvaluateFieldTile(HashGrid, WorldW, WorldH, CellW, CellH, GridW, Field, Particles,
+                    XStart, YStart, XEnd, YEnd);
+        }
     }
 
     int LineIndex = 0;
 
-    X0 = -0.5f * WorldW;
+    float X0 = -0.5f * WorldW;
 
     for (int XIndex = 0; XIndex < GridW; ++XIndex) {
 
