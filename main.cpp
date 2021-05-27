@@ -85,11 +85,12 @@ LoadOpenGLFunctions()
     glGetShaderiv = (gl_get_shaderiv)SDL_GL_GetProcAddress("glGetShaderiv");
 }
 
+#include "work_queue.h"
 #include "linalg.h"
-
 #include "sim.h"
 #include "render.h"
 
+#include "posix_work_queue.cpp"
 #include "sim.cpp"
 #include "render.cpp"
 
@@ -113,6 +114,8 @@ main(void)
     LoadOpenGLFunctions();
 
     SDL_GL_SetSwapInterval(1);
+
+    InitQueue(&GlobalWorkQueue);
 
     sim Sim = {};
     InitSim(&Sim);

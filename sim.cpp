@@ -288,20 +288,4 @@ InitSim(sim *Sim)
     Sim->HashGrid = Grid;
 
     Sim->Gravity = V2(0, -9.81f);
-
-    pthread_mutex_init(&GlobalWorkQueue.Mutex, 0);
-    pthread_cond_init(&GlobalWorkQueue.Cond, 0);
-    GlobalWorkQueue.Works = (work_queue_entry *)malloc(512 * sizeof(work_queue_entry));
-    GlobalWorkQueue.Size = 0;
-    GlobalWorkQueue.DoneCount = 0;
-    GlobalWorkQueue.Index = 0;
-
-    int WorkerThreads = sysconf(_SC_NPROCESSORS_CONF) - 1;
-    if (WorkerThreads > MAX_THREAD_COUNT - 1) {
-        WorkerThreads = MAX_THREAD_COUNT - 1;
-    }
-    printf("Spawning %d worker threads...\n", WorkerThreads);
-    for (int i = 0; i < WorkerThreads; ++i) {
-        pthread_create(&Sim->Threads[i], 0, MarchingSquaresThread, 0);
-    }
 }

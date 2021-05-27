@@ -16,23 +16,6 @@ struct opengl {
     float *Field;
 };
 
-typedef void (*work_queue_proc) (void *Data);
-
-struct work_queue_entry {
-    void *Data;
-    work_queue_proc Proc;
-};
-
-struct work_queue {
-    work_queue_entry *Works;
-    int Size;
-    volatile int Index;
-    volatile int DoneCount;
-
-    pthread_mutex_t Mutex;
-    pthread_cond_t Cond;
-};
-
 struct field_eval_work {
     hash_grid HashGrid;
     float CellW;
@@ -49,8 +32,3 @@ struct field_eval_work {
 
 static void EvaluateFieldTile(void *Data);
 static void * MarchingSquaresThread(void *Data);
-static void ResetQueue(work_queue *Queue);
-static void AddEntry(work_queue *Queue, void *Work, work_queue_proc Proc);
-static void FinishWork(work_queue *Queue);
-
-static work_queue GlobalWorkQueue;

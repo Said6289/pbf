@@ -1,6 +1,3 @@
-#include <unistd.h>
-#include <pthread.h>
-
 #define MAX_THREAD_COUNT 64
 
 #define PARTICLE_RADIUS 0.025f
@@ -57,6 +54,4 @@ struct sim {
 
     hash_grid HashGrid;
     v2 Gravity;
-
-    pthread_t Threads[MAX_THREAD_COUNT - 1];
 };
