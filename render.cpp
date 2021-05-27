@@ -176,22 +176,13 @@ RunWorkEntry(work_queue *Queue, sim *Sim, opengl *OpenGL)
 {
     bool DidWork = false;
     
-    hash_grid HashGrid = Sim->HashGrid;
-    int GridW = OpenGL->GridW;
-    int GridH = OpenGL->GridH;
-    float CellW = WORLD_WIDTH / GridW;
-    float CellH = WORLD_HEIGHT / GridH;
-    float *Field = OpenGL->Field;
-    particle *Particles = Sim->Particles;
-
     pthread_mutex_lock(&Queue->Mutex);
     if (Queue->Index < Queue->Size) {
         work_queue_entry Entry = Queue->Works[Queue->Index];
         Queue->Index = Queue->Index + 1;
         pthread_mutex_unlock(&Queue->Mutex);
 
-        field_eval_work *Work = (field_eval_work *)Entry.Data;
-        Entry.Proc(Work);
+        Entry.Proc(Entry.Data);
 
         pthread_mutex_lock(&Queue->Mutex);
         Queue->DoneCount = Queue->DoneCount + 1;
