@@ -3,8 +3,6 @@
 #include <SDL.h>
 #include <SDL_opengl.h>
 
-#include "render.h"
-
 typedef void (APIENTRY *gl_gen_buffers)(GLsizei, GLuint *);
 typedef void (APIENTRY *gl_bind_buffer)(GLenum, GLuint);
 typedef void (APIENTRY *gl_buffer_data)(GLenum, GLsizeiptr, const GLvoid *, GLenum);
@@ -88,6 +86,7 @@ LoadOpenGLFunctions()
 }
 
 #include "sim.cpp"
+#include "render.h"
 #include "render.cpp"
 
 int
@@ -115,7 +114,7 @@ main(void)
     InitSim(&Sim);
 
     opengl OpenGL = {};
-    InitializeOpenGL(&OpenGL, Sim.ParticleCount);
+    InitializeOpenGL(&OpenGL, Sim.HashGrid, Sim.ParticleCount, Sim.Particles);
 
     bool Running = true;
     while (Running) {

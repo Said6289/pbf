@@ -14,7 +14,7 @@ static const char *FragmentShaderCode = R"glsl(
 )glsl";
 
 static void
-InitializeOpenGL(opengl *OpenGL, int ParticleCount) {
+InitializeOpenGL(opengl *OpenGL, hash_grid HashGrid, int ParticleCount, particle *Particles) {
     GLint status;
 
     GLuint VertexShader = glCreateShader(GL_VERTEX_SHADER);
@@ -54,6 +54,24 @@ InitializeOpenGL(opengl *OpenGL, int ParticleCount) {
     OpenGL->GridW = 150;
     OpenGL->GridH = 200;
     OpenGL->Field = (float *)malloc((OpenGL->GridW + 1) * (OpenGL->GridH + 1) * sizeof(float));
+
+    pthread_mutex_init(&GlobalWorkQueue.Mutex, 0);
+    pthread_cond_init(&GlobalWorkQueue.Cond, 0);
+    GlobalWorkQueue.Works = (work_queue_entry *)malloc(512 * sizeof(work_queue_entry));
+    GlobalWorkQueue.Size = 0;
+    GlobalWorkQueue.DoneCount = 0;
+    GlobalWorkQueue.Index = 0;
+
+    worker_thread_data *WorkerData = (worker_thread_data *)malloc(sizeof(worker_thread_data));
+
+    int WorkerThreads = sysconf(_SC_NPROCESSORS_CONF) - 1;
+    if (WorkerThreads > MAX_THREAD_COUNT - 1) {
+        WorkerThreads = MAX_THREAD_COUNT - 1;
+    }
+    printf("Spawning %d worker threads...\n", WorkerThreads);
+    for (int i = 0; i < WorkerThreads; ++i) {
+        pthread_create(&OpenGL->Threads[i], 0, MarchingSquaresThread, WorkerData);
+    }
 }
 
 static void
@@ -87,8 +105,25 @@ FieldLerp(v2 P0, float F0, v2 P1, float F1, float Threshold)
 }
 
 static void
-EvaluateFieldTile(hash_grid HashGrid, float WorldW, float WorldH, float CellW, float CellH, int GridW, float *Field, particle *Particles, int XStart, int YStart, int XEnd, int YEnd)
+EvaluateFieldTile(void *Data)
 {
+    field_eval_work *Work = (field_eval_work *)Data;
+
+    hash_grid HashGrid = Work->HashGrid;
+    float CellW = Work->CellW;
+    float CellH = Work->CellH;
+    int GridW = Work->GridW;
+    float *Field = Work->Field;
+    particle *Particles = Work->Particles;
+
+    int XStart = Work->XStart;
+    int YStart = Work->YStart;
+    int XEnd = Work->XEnd;
+    int YEnd = Work->YEnd;
+
+    float WorldW = WORLD_WIDTH;
+    float WorldH = WORLD_HEIGHT;
+
     for (int XIndex = XStart; XIndex < XEnd; ++XIndex) {
         float X0 = -0.5f * WorldW + XIndex * CellW;
 
@@ -136,6 +171,57 @@ EvaluateFieldTile(hash_grid HashGrid, float WorldW, float WorldH, float CellW, f
     }
 }
 
+static bool
+RunWorkEntry(work_queue *Queue, sim *Sim, opengl *OpenGL)
+{
+    bool DidWork = false;
+    
+    hash_grid HashGrid = Sim->HashGrid;
+    int GridW = OpenGL->GridW;
+    int GridH = OpenGL->GridH;
+    float CellW = WORLD_WIDTH / GridW;
+    float CellH = WORLD_HEIGHT / GridH;
+    float *Field = OpenGL->Field;
+    particle *Particles = Sim->Particles;
+
+    pthread_mutex_lock(&Queue->Mutex);
+    if (Queue->Index < Queue->Size) {
+        work_queue_entry Entry = Queue->Works[Queue->Index];
+        Queue->Index = Queue->Index + 1;
+        pthread_mutex_unlock(&Queue->Mutex);
+
+        field_eval_work *Work = (field_eval_work *)Entry.Data;
+        Entry.Proc(Work);
+
+        pthread_mutex_lock(&Queue->Mutex);
+        Queue->DoneCount = Queue->DoneCount + 1;
+        pthread_mutex_unlock(&Queue->Mutex);
+
+        DidWork = true;
+    } else {
+        pthread_mutex_unlock(&Queue->Mutex);
+    }
+
+    return DidWork;
+}
+
+static void *
+MarchingSquaresThread(void *Data)
+{
+    worker_thread_data *WorkerData = (worker_thread_data *)Data;
+    
+    work_queue *Queue = &GlobalWorkQueue;
+    
+    while (true) {
+        bool DidWork = RunWorkEntry(Queue, WorkerData->Sim, WorkerData->OpenGL);
+        if (!DidWork) {
+            pthread_mutex_lock(&Queue->Mutex);
+            pthread_cond_wait(&Queue->Cond, &Queue->Mutex);
+            pthread_mutex_unlock(&Queue->Mutex);
+        }
+    }
+}
+
 static void
 RenderMarchingSquares(opengl *OpenGL, sim *Sim)
 {
@@ -152,32 +238,62 @@ RenderMarchingSquares(opengl *OpenGL, sim *Sim)
     float WorldW = WORLD_WIDTH;
     float WorldH = WORLD_HEIGHT;
 
-    float Threshold = 0.3f;
+    float Threshold = 0.2f;
 
     int GridW = OpenGL->GridW;
     int GridH = OpenGL->GridH;
-    float *Field = OpenGL->Field;
-
     float CellW = WorldW / GridW;
     float CellH = WorldH / GridH;
+    float *Field = OpenGL->Field;
 
     int TileSize = 32;
     int TileCountX = ((GridW + 1) + TileSize - 1) / TileSize;
     int TileCountY = ((GridH + 1) + TileSize - 1) / TileSize;
+
+    int TileCount = TileCountX * TileCountY;
+
+    work_queue *Queue = &GlobalWorkQueue;
+    Queue->Size = 0;
+    Queue->Index = 0;
+    Queue->DoneCount = 0;
+
+    field_eval_work Works[128];
+    int WorkCount = 0;
+
     for (int TileX = 0; TileX < TileCountX; ++TileX) {
         for (int TileY = 0; TileY < TileCountY; ++TileY) {
+            assert(Queue->Size < 512);
+            assert(WorkCount < 128);
+            field_eval_work *Work = Works + WorkCount++;
 
-            int XStart = TileX * TileSize;
-            int YStart = TileY * TileSize;
+            Work->HashGrid = HashGrid;
+            Work->CellW = CellW;
+            Work->CellH = CellH;
+            Work->GridW = GridW;
+            Work->Field = Field;
+            Work->Particles = Particles;
 
-            int XEnd = XStart + TileSize;
-            int YEnd = YStart + TileSize;
+            Work->XStart = TileX * TileSize;
+            Work->YStart = TileY * TileSize;
 
-            if (XEnd > (GridW + 1)) XEnd = (GridW + 1);
-            if (YEnd > (GridH + 1)) YEnd = (GridH + 1);
+            Work->XEnd = Work->XStart + TileSize;
+            Work->YEnd = Work->YStart + TileSize;
 
-            EvaluateFieldTile(HashGrid, WorldW, WorldH, CellW, CellH, GridW, Field, Particles,
-                    XStart, YStart, XEnd, YEnd);
+            if (Work->XEnd > (GridW + 1)) Work->XEnd = (GridW + 1);
+            if (Work->YEnd > (GridH + 1)) Work->YEnd = (GridH + 1);
+
+            work_queue_entry *Entry = Queue->Works + Queue->Size++;
+            Entry->Data = Work;
+            Entry->Proc = EvaluateFieldTile;
+        }
+    }
+
+    pthread_cond_broadcast(&Queue->Cond);
+    while (true) {
+        bool DidWork = RunWorkEntry(Queue, Sim, OpenGL);
+        if (!DidWork) {
+            while (Queue->DoneCount != Queue->Size);
+            break;
         }
     }
 

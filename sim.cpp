@@ -1,7 +1,7 @@
 #include "linalg.h"
 
 #define PARTICLE_RADIUS 0.025f
-#define PARTICLES_PER_AXIS 75 
+#define PARTICLES_PER_AXIS 75
 #define dt 0.008f
 
 #define H (PARTICLE_RADIUS * 6.0f)
