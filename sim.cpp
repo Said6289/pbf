@@ -177,43 +177,34 @@ Simulate(sim *Sim)
         particle *P = Particles + i;
 
         P->Density = 0;
+        float SquaredGradSum = 0;
+        v2 GradientOfI = {};
 
         for (int ni = 0; ni < P->NeighborCount; ++ni) {
-            particle *N = Particles + P->Neighbors[ni];
+            int j = P->Neighbors[ni];
+            particle *N = Particles + j;
 
             float R2 = LengthSq(P->P - N->P);
             if (R2 < H2) {
                 float A = H2 - R2;
                 P->Density += PARTiCLE_MASS * (315.0f / (64.0f * (float)M_PI * H9)) * A * A * A;
             }
-        }
-    }
 
-    for (int i = 0; i < ParticleCount; ++i) {
-        particle *P = Particles + i;
+            if (i != j) {
+                v2 R = P->P - N->P;
+                float RLen = Length(R);
 
-        float SquaredGradSum = 0;
-        v2 GradientOfI = {};
+                if (RLen > 0 && RLen < H) {
+                    float A = H - RLen;
+                    A = (-45.0f / ((float)M_PI * H6)) * A * A;
+                    A /= RLen;
+                    v2 Gradient = A * R;
 
-        for (int ni = 0; ni < P->NeighborCount; ++ni) {
-            int j = P->Neighbors[ni];
-            if (i == j) continue;
+                    Gradient *= (1.0f / REST_DENSITY);
 
-            particle *N = Particles + j;
-
-            v2 R = P->P - N->P;
-            float RLen = Length(R);
-
-            if (RLen > 0 && RLen < H) {
-                float A = H - RLen;
-                A = (-45.0f / ((float)M_PI * H6)) * A * A;
-                A /= RLen;
-                v2 Gradient = A * R;
-
-                Gradient *= (1.0f / REST_DENSITY);
-
-                SquaredGradSum += Dot(Gradient, Gradient);
-                GradientOfI += Gradient;
+                    SquaredGradSum += Dot(Gradient, Gradient);
+                    GradientOfI += Gradient;
+                }
             }
         }
 
