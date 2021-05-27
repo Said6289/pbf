@@ -133,10 +133,16 @@ main(void)
             }
         }
 
-        Simulate(&Sim);
-
         int ScreenWidth = 0, ScreenHeight = 0;
         SDL_GetWindowSize(Window, &ScreenWidth, &ScreenHeight);
+
+        int MouseX = 0;
+        int MouseY = 0;
+        int ButtonState = SDL_GetMouseState(&MouseX, &MouseY);
+        Sim.PullPoint = (V2(MouseX, MouseY) * V2(1.0f / ScreenWidth, 1.0f / ScreenHeight) - V2(0.5f)) * V2(WORLD_WIDTH, -WORLD_HEIGHT);
+        Sim.Pulling = ButtonState & SDL_BUTTON(SDL_BUTTON_LEFT);
+
+        Simulate(&Sim);
 
         glViewport(0, 0, ScreenWidth, ScreenHeight);
 

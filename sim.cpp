@@ -136,6 +136,9 @@ Simulate(sim *Sim)
 
         P->P0 = P->P;
         P->V += Sim->Gravity * dt;
+        if (Sim->Pulling) {
+            P->V += (Sim->PullPoint - P->P) * 3.0f * dt;
+        }
         P->P += P->V * dt;
     }
 

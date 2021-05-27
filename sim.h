@@ -54,4 +54,7 @@ struct sim {
 
     hash_grid HashGrid;
     v2 Gravity;
+
+    bool Pulling;
+    v2 PullPoint;
 };
