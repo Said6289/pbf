@@ -54,24 +54,6 @@ InitializeOpenGL(opengl *OpenGL, hash_grid HashGrid, int ParticleCount, particle
     OpenGL->GridW = 150;
     OpenGL->GridH = 200;
     OpenGL->Field = (float *)malloc((OpenGL->GridW + 1) * (OpenGL->GridH + 1) * sizeof(float));
-
-    pthread_mutex_init(&GlobalWorkQueue.Mutex, 0);
-    pthread_cond_init(&GlobalWorkQueue.Cond, 0);
-    GlobalWorkQueue.Works = (work_queue_entry *)malloc(512 * sizeof(work_queue_entry));
-    GlobalWorkQueue.Size = 0;
-    GlobalWorkQueue.DoneCount = 0;
-    GlobalWorkQueue.Index = 0;
-
-    worker_thread_data *WorkerData = (worker_thread_data *)malloc(sizeof(worker_thread_data));
-
-    int WorkerThreads = sysconf(_SC_NPROCESSORS_CONF) - 1;
-    if (WorkerThreads > MAX_THREAD_COUNT - 1) {
-        WorkerThreads = MAX_THREAD_COUNT - 1;
-    }
-    printf("Spawning %d worker threads...\n", WorkerThreads);
-    for (int i = 0; i < WorkerThreads; ++i) {
-        pthread_create(&OpenGL->Threads[i], 0, MarchingSquaresThread, WorkerData);
-    }
 }
 
 static void
@@ -172,7 +154,7 @@ EvaluateFieldTile(void *Data)
 }
 
 static bool
-RunWorkEntry(work_queue *Queue, sim *Sim, opengl *OpenGL)
+RunWorkEntry(work_queue *Queue)
 {
     bool DidWork = false;
     
@@ -196,15 +178,43 @@ RunWorkEntry(work_queue *Queue, sim *Sim, opengl *OpenGL)
     return DidWork;
 }
 
+static void
+ResetQueue(work_queue *Queue)
+{
+    Queue->Index = 0;
+    Queue->Size = 0;
+    Queue->DoneCount = 0;
+}
+
+static void
+AddEntry(work_queue *Queue, void *Work, work_queue_proc Proc)
+{
+    assert(Queue->Size < 512);
+    work_queue_entry *Entry = Queue->Works + Queue->Size++;
+    Entry->Data = Work;
+    Entry->Proc = Proc;
+}
+
+static void
+FinishWork(work_queue *Queue)
+{
+    pthread_cond_broadcast(&Queue->Cond);
+    while (true) {
+        bool DidWork = RunWorkEntry(Queue);
+        if (!DidWork) {
+            while (Queue->DoneCount != Queue->Size);
+            break;
+        }
+    }
+}
+
 static void *
 MarchingSquaresThread(void *Data)
 {
-    worker_thread_data *WorkerData = (worker_thread_data *)Data;
-    
     work_queue *Queue = &GlobalWorkQueue;
     
     while (true) {
-        bool DidWork = RunWorkEntry(Queue, WorkerData->Sim, WorkerData->OpenGL);
+        bool DidWork = RunWorkEntry(Queue);
         if (!DidWork) {
             pthread_mutex_lock(&Queue->Mutex);
             pthread_cond_wait(&Queue->Cond, &Queue->Mutex);
@@ -244,16 +254,13 @@ RenderMarchingSquares(opengl *OpenGL, sim *Sim)
     int TileCount = TileCountX * TileCountY;
 
     work_queue *Queue = &GlobalWorkQueue;
-    Queue->Size = 0;
-    Queue->Index = 0;
-    Queue->DoneCount = 0;
+    ResetQueue(Queue);
 
     field_eval_work Works[128];
     int WorkCount = 0;
 
     for (int TileX = 0; TileX < TileCountX; ++TileX) {
         for (int TileY = 0; TileY < TileCountY; ++TileY) {
-            assert(Queue->Size < 512);
             assert(WorkCount < 128);
             field_eval_work *Work = Works + WorkCount++;
 
@@ -273,20 +280,11 @@ RenderMarchingSquares(opengl *OpenGL, sim *Sim)
             if (Work->XEnd > (GridW + 1)) Work->XEnd = (GridW + 1);
             if (Work->YEnd > (GridH + 1)) Work->YEnd = (GridH + 1);
 
-            work_queue_entry *Entry = Queue->Works + Queue->Size++;
-            Entry->Data = Work;
-            Entry->Proc = EvaluateFieldTile;
+            AddEntry(Queue, Work, EvaluateFieldTile);
         }
     }
 
-    pthread_cond_broadcast(&Queue->Cond);
-    while (true) {
-        bool DidWork = RunWorkEntry(Queue, Sim, OpenGL);
-        if (!DidWork) {
-            while (Queue->DoneCount != Queue->Size);
-            break;
-        }
-    }
+    FinishWork(Queue);
 
     int LineIndex = 0;
 

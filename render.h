@@ -1,8 +1,3 @@
-#include <unistd.h>
-#include <pthread.h>
-
-#define MAX_THREAD_COUNT 64
-
 struct opengl {
     GLuint ShaderProgram;
     GLuint VAO;
@@ -19,13 +14,6 @@ struct opengl {
     int GridW;
     int GridH;
     float *Field;
-
-    pthread_t Threads[MAX_THREAD_COUNT - 1];
-};
-
-struct worker_thread_data {
-    sim *Sim;
-    opengl *OpenGL;
 };
 
 typedef void (*work_queue_proc) (void *Data);
@@ -61,5 +49,8 @@ struct field_eval_work {
 
 static void EvaluateFieldTile(void *Data);
 static void * MarchingSquaresThread(void *Data);
+static void ResetQueue(work_queue *Queue);
+static void AddEntry(work_queue *Queue, void *Work, work_queue_proc Proc);
+static void FinishWork(work_queue *Queue);
 
 static work_queue GlobalWorkQueue;

@@ -85,8 +85,12 @@ LoadOpenGLFunctions()
     glGetShaderiv = (gl_get_shaderiv)SDL_GL_GetProcAddress("glGetShaderiv");
 }
 
-#include "sim.cpp"
+#include "linalg.h"
+
+#include "sim.h"
 #include "render.h"
+
+#include "sim.cpp"
 #include "render.cpp"
 
 int

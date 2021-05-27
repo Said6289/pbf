@@ -1,34 +1,3 @@
-#include "linalg.h"
-
-#define PARTICLE_RADIUS 0.025f
-#define PARTICLES_PER_AXIS 75
-#define dt 0.008f
-
-#define H (PARTICLE_RADIUS * 6.0f)
-#define MAX_NEIGHBORS 512
-
-#define WORLD_WIDTH 10.0f
-#define WORLD_HEIGHT 10.0f
-
-struct hash_grid_cell {
-    int x, y;
-    int *Data;
-};
-
-struct hash_grid {
-    int Width;
-    int Height;
-    int CellCount;
-
-    v2 WorldP;
-    float CellDim;
-
-    int ElementsPerCell;
-
-    int *ElementCounts;
-    int *Elements;
-};
-
 static void
 Clear(hash_grid Grid)
 {
@@ -97,36 +66,65 @@ AddElement(hash_grid Grid, v2 P, int Element)
     Cell.Data[Grid.ElementCounts[CellIndex]++] = Element;
 }
 
-struct particle {
-    v2 P0;
-    v2 P;
-    v2 V;
-    float Density;
-    float Pressure;
+struct lambda_work {
+    int ParticleIndex;
+    int ParticleEnd;
 
-    int NeighborCount;
-    int *Neighbors;
-};
-
-struct sim {
-    int ParticleCount;
     particle *Particles;
-
-    hash_grid HashGrid;
-    v2 Gravity;
 };
+
+static void
+ComputeLambda(void *Data)
+{
+    lambda_work *Work = (lambda_work *)Data;
+
+    int ParticleIndex = Work->ParticleIndex;
+    int ParticleEnd = Work->ParticleEnd;
+    particle *Particles = Work->Particles;
+
+    for (int i = ParticleIndex; i < ParticleEnd; ++i) {
+        particle *P = Particles + i;
+
+        P->Density = 0;
+        float SquaredGradSum = 0;
+        v2 GradientOfI = {};
+
+        for (int ni = 0; ni < P->NeighborCount; ++ni) {
+            int j = P->Neighbors[ni];
+            particle *N = Particles + j;
+
+            float R2 = LengthSq(P->P - N->P);
+            if (R2 < H2) {
+                float A = H2 - R2;
+                P->Density += PARTICLE_MASS * (315.0f / (64.0f * (float)M_PI * H9)) * A * A * A;
+            }
+
+            if (i != j) {
+                v2 R = P->P - N->P;
+                float RLen = Length(R);
+
+                if (RLen > 0 && RLen < H) {
+                    float A = H - RLen;
+                    A = (-45.0f / ((float)M_PI * H6)) * A * A;
+                    A /= RLen;
+                    v2 Gradient = A * R;
+
+                    Gradient *= (1.0f / REST_DENSITY);
+
+                    SquaredGradSum += Dot(Gradient, Gradient);
+                    GradientOfI += Gradient;
+                }
+            }
+        }
+
+        float LambdaDenom = SquaredGradSum + Dot(GradientOfI, GradientOfI) + RELAXATION;
+        P->Pressure = -(P->Density / REST_DENSITY - 1) / LambdaDenom;
+    }
+}
 
 static void
 Simulate(sim *Sim)
 {
-    const float PARTiCLE_MASS = 1.0f;
-    const float REST_DENSITY = 1000.0f; 
-    const float RELAXATION = 300.0f;
-
-    const float H2 = H*H;
-    const float H6 = H*H*H*H*H*H;
-    const float H9 = H*H*H*H*H*H*H*H*H;
-
     hash_grid HashGrid = Sim->HashGrid;
     int ParticleCount = Sim->ParticleCount;
     particle *Particles = Sim->Particles;
@@ -173,44 +171,30 @@ Simulate(sim *Sim)
         }
     }
 
-    for (int i = 0; i < ParticleCount; ++i) {
-        particle *P = Particles + i;
+    work_queue *Queue = &GlobalWorkQueue;
+    ResetQueue(Queue);
 
-        P->Density = 0;
-        float SquaredGradSum = 0;
-        v2 GradientOfI = {};
+    lambda_work Works[256];
+    int WorkCount = 0;
 
-        for (int ni = 0; ni < P->NeighborCount; ++ni) {
-            int j = P->Neighbors[ni];
-            particle *N = Particles + j;
+    int TileSize = 128;
+    int TileCount = (ParticleCount + TileSize - 1) / TileSize;
 
-            float R2 = LengthSq(P->P - N->P);
-            if (R2 < H2) {
-                float A = H2 - R2;
-                P->Density += PARTiCLE_MASS * (315.0f / (64.0f * (float)M_PI * H9)) * A * A * A;
-            }
+    for (int i = 0; i < TileCount; ++i) {
+        assert(WorkCount < 256);
+        lambda_work *Work = Works + WorkCount++;
 
-            if (i != j) {
-                v2 R = P->P - N->P;
-                float RLen = Length(R);
-
-                if (RLen > 0 && RLen < H) {
-                    float A = H - RLen;
-                    A = (-45.0f / ((float)M_PI * H6)) * A * A;
-                    A /= RLen;
-                    v2 Gradient = A * R;
-
-                    Gradient *= (1.0f / REST_DENSITY);
-
-                    SquaredGradSum += Dot(Gradient, Gradient);
-                    GradientOfI += Gradient;
-                }
-            }
+        Work->ParticleIndex = i * TileSize;
+        Work->ParticleEnd = Work->ParticleIndex + TileSize;
+        if (Work->ParticleEnd > ParticleCount) {
+            Work->ParticleEnd = ParticleCount;
         }
+        Work->Particles = Particles;
 
-        float LambdaDenom = SquaredGradSum + Dot(GradientOfI, GradientOfI) + RELAXATION;
-        P->Pressure = -(P->Density / REST_DENSITY - 1) / LambdaDenom;
+        AddEntry(Queue, Work, ComputeLambda);
     }
+
+    FinishWork(Queue);
 
     for (int i = 0; i < ParticleCount; ++i) {
         particle *P = Particles + i;
@@ -304,4 +288,20 @@ InitSim(sim *Sim)
     Sim->HashGrid = Grid;
 
     Sim->Gravity = V2(0, -9.81f);
+
+    pthread_mutex_init(&GlobalWorkQueue.Mutex, 0);
+    pthread_cond_init(&GlobalWorkQueue.Cond, 0);
+    GlobalWorkQueue.Works = (work_queue_entry *)malloc(512 * sizeof(work_queue_entry));
+    GlobalWorkQueue.Size = 0;
+    GlobalWorkQueue.DoneCount = 0;
+    GlobalWorkQueue.Index = 0;
+
+    int WorkerThreads = sysconf(_SC_NPROCESSORS_CONF) - 1;
+    if (WorkerThreads > MAX_THREAD_COUNT - 1) {
+        WorkerThreads = MAX_THREAD_COUNT - 1;
+    }
+    printf("Spawning %d worker threads...\n", WorkerThreads);
+    for (int i = 0; i < WorkerThreads; ++i) {
+        pthread_create(&Sim->Threads[i], 0, MarchingSquaresThread, 0);
+    }
 }
