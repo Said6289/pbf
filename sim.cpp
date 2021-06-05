@@ -177,14 +177,14 @@ Simulate(sim *Sim)
     work_queue *Queue = &GlobalWorkQueue;
     ResetQueue(Queue);
 
-    lambda_work Works[256];
+    lambda_work Works[512];
     int WorkCount = 0;
 
-    int TileSize = 128;
+    int TileSize = 64;
     int TileCount = (ParticleCount + TileSize - 1) / TileSize;
 
     for (int i = 0; i < TileCount; ++i) {
-        assert(WorkCount < 256);
+        assert(WorkCount < 512);
         lambda_work *Work = Works + WorkCount++;
 
         Work->ParticleIndex = i * TileSize;
@@ -212,6 +212,7 @@ Simulate(sim *Sim)
 
             v2 R = P->P - N->P;
             float RLen = Length(R);
+            float R2 = LengthSq(R);
 
             if (RLen > 0 && RLen < H) {
                 float A = H - RLen;
@@ -219,7 +220,21 @@ Simulate(sim *Sim)
                 A /= RLen;
                 v2 Gradient = A * R;
 
-                DeltaP += (N->Pressure + P->Pressure) * Gradient;
+                const float k = 0.1f;
+                A = H2 - R2;
+                float Scorr = 0;
+                if (A > 0) {
+                    float Numerator = (315.0f / (64.0f * (float)M_PI * H9)) * A * A * A;
+                    A = 0.3f * H;
+                    float Denomerator = (315.0f / (64.0f * (float)M_PI * H9)) * A * A * A;
+                    Scorr = Numerator / Denomerator;
+                }
+
+                Scorr *= Scorr;
+                Scorr *= Scorr;
+                Scorr *= -k;
+
+                DeltaP += (N->Pressure + P->Pressure + Scorr) * Gradient;
             }
         }
 
@@ -277,6 +292,8 @@ InitSim(sim *Sim)
 
     Sim->ParticleCount = ParticleCount;
     Sim->Particles = Particles;
+
+    printf("Simulating %d particles...\n", Sim->ParticleCount);
 
     hash_grid Grid = {};
     Grid.WorldP = V2(WORLD_WIDTH, WORLD_HEIGHT) * -0.5f;

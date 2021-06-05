@@ -1,6 +1,6 @@
 #define MAX_THREAD_COUNT 64
 
-#define PARTICLE_RADIUS 0.025f
+#define PARTICLE_RADIUS 0.0125f
 #define PARTICLE_MASS 1.0f
 #define PARTICLES_PER_AXIS 75
 #define dt 0.008f
@@ -8,12 +8,12 @@
 #define REST_DENSITY 1000.0f
 #define RELAXATION 300.0f
 
-#define H (PARTICLE_RADIUS * 6.0f)
+#define H (PARTICLE_RADIUS * 12.0f)
 #define H2 (H*H)
 #define H6 (H*H*H*H*H*H)
 #define H9 (H*H*H*H*H*H*H*H*H)
 
-#define MAX_NEIGHBORS 512
+#define MAX_NEIGHBORS 2048
 
 #define WORLD_WIDTH 10.0f
 #define WORLD_HEIGHT 10.0f

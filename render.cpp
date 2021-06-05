@@ -51,7 +51,7 @@ InitializeOpenGL(opengl *OpenGL, hash_grid HashGrid, int ParticleCount, particle
     OpenGL->VertexCount = 4 * 8192;
     OpenGL->Vertices = (float *)malloc(2 * sizeof(float) * OpenGL->VertexCount);
 
-    OpenGL->GridW = 150;
+    OpenGL->GridW = 200;
     OpenGL->GridH = 200;
     OpenGL->Field = (float *)malloc((OpenGL->GridW + 1) * (OpenGL->GridH + 1) * sizeof(float));
 }
@@ -59,18 +59,19 @@ InitializeOpenGL(opengl *OpenGL, hash_grid HashGrid, int ParticleCount, particle
 static void
 PushLine(opengl *OpenGL, int Index, v2 P0, v2 P1)
 {
-    assert(Index * 2 <= OpenGL->VertexCount);
-    P0.x = 2 * P0.x / WORLD_WIDTH;
-    P0.y = 2 * P0.y / WORLD_HEIGHT;
+    if (Index * 2 <= OpenGL->VertexCount) {
+        P0.x = 2 * P0.x / WORLD_WIDTH;
+        P0.y = 2 * P0.y / WORLD_HEIGHT;
 
-    P1.x = 2 * P1.x / WORLD_WIDTH;
-    P1.y = 2 * P1.y / WORLD_HEIGHT;
+        P1.x = 2 * P1.x / WORLD_WIDTH;
+        P1.y = 2 * P1.y / WORLD_HEIGHT;
 
-    OpenGL->Vertices[2 * (Index * 2 + 0) + 0] = P0.x;
-    OpenGL->Vertices[2 * (Index * 2 + 0) + 1] = P0.y;
+        OpenGL->Vertices[2 * (Index * 2 + 0) + 0] = P0.x;
+        OpenGL->Vertices[2 * (Index * 2 + 0) + 1] = P0.y;
 
-    OpenGL->Vertices[2 * (Index * 2 + 1) + 0] = P1.x;
-    OpenGL->Vertices[2 * (Index * 2 + 1) + 1] = P1.y;
+        OpenGL->Vertices[2 * (Index * 2 + 1) + 0] = P1.x;
+        OpenGL->Vertices[2 * (Index * 2 + 1) + 1] = P1.y;
+    }
 }
 
 static v2
