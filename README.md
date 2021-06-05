@@ -14,8 +14,8 @@ now, but the SDL threading abstraction could be used in the future
 to be able to build on Windows.
 
 Building with the Makefile should be pretty straightforward:
-```
-make
+```bash
+$ make
 ```
 
 ## User Interaction
