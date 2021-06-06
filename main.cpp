@@ -3,7 +3,7 @@
 #include <SDL.h>
 #include <SDL_opengl.h>
 
-#define ArrayCount(a) (sizeof(a)/sizeof(*a))
+#define ArrayCount(a) (sizeof(a)/sizeof(*(a)))
 
 typedef void (APIENTRY *gl_gen_buffers)(GLsizei, GLuint *);
 typedef void (APIENTRY *gl_bind_buffer)(GLenum, GLuint);
