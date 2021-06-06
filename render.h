@@ -11,6 +11,7 @@ struct opengl {
 
     GLuint FieldFramebuffer;
     GLuint FieldTexture;
+    GLuint HashGridTexture;
 
     float *Vertices;
     int VertexCount;
@@ -18,6 +19,7 @@ struct opengl {
     int GridW;
     int GridH;
     float *Field;
+    float *HashGridData;
 };
 
 struct field_eval_work {

@@ -38,6 +38,8 @@ typedef void (APIENTRY *gl_bind_framebuffer)(GLenum, GLuint);
 typedef void (APIENTRY *gl_framebuffer_texture_2d)(GLenum, GLenum, GLuint, GLuint, GLint);
 typedef void (APIENTRY *gl_bind_image_texture)(GLuint, GLuint, GLint, GLboolean, GLint, GLenum, GLenum);
 typedef void (APIENTRY *gl_tex_storage_2d)(GLenum, GLsizei, GLenum, GLsizei, GLsizei);
+typedef void (APIENTRY *gl_tex_storage_3d)(GLenum, GLsizei, GLenum, GLsizei, GLsizei, GLsizei);
+typedef void (APIENTRY *gl_memory_barrier)(GLbitfield);
 
 static gl_gen_buffers glGenBuffers = 0;
 static gl_bind_buffer glBindBuffer = 0;
@@ -69,6 +71,8 @@ static gl_bind_framebuffer glBindFramebuffer = 0;
 static gl_framebuffer_texture_2d glFramebufferTexture2D = 0;
 static gl_bind_image_texture glBindImageTexture = 0;
 static gl_tex_storage_2d glTexStorage2D = 0;
+static gl_tex_storage_3d glTexStorage3D = 0;
+static gl_memory_barrier glMemoryBarrier = 0;
 
 static void
 LoadOpenGLFunctions()
@@ -103,6 +107,8 @@ LoadOpenGLFunctions()
     glFramebufferTexture2D = (gl_framebuffer_texture_2d)SDL_GL_GetProcAddress("glFramebufferTexture2D");
     glBindImageTexture = (gl_bind_image_texture)SDL_GL_GetProcAddress("glBindImageTexture");
     glTexStorage2D = (gl_tex_storage_2d)SDL_GL_GetProcAddress("glTexStorage2D");
+    glTexStorage3D = (gl_tex_storage_3d)SDL_GL_GetProcAddress("glTexStorage3D");
+    glMemoryBarrier = (gl_memory_barrier)SDL_GL_GetProcAddress("glMemoryBarrier");
 }
 
 #include "work_queue.h"

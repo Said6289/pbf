@@ -62,8 +62,9 @@ AddElement(hash_grid Grid, v2 P, int Element)
 {
     hash_grid_cell Cell = GetCell(Grid, P);
     int CellIndex = GetCellIndex(Grid, Cell);
-    assert(Grid.ElementCounts[CellIndex] < Grid.ElementsPerCell);
-    Cell.Data[Grid.ElementCounts[CellIndex]++] = Element;
+    if (Grid.ElementCounts[CellIndex] < Grid.ElementsPerCell) {
+        Cell.Data[Grid.ElementCounts[CellIndex]++] = Element;
+    }
 }
 
 struct lambda_work {
@@ -316,7 +317,7 @@ InitSim(sim *Sim)
     Grid.Width = WORLD_WIDTH / Grid.CellDim;
     Grid.Height = WORLD_HEIGHT / Grid.CellDim;
     Grid.CellCount = Grid.Width * Grid.Height;
-    Grid.ElementsPerCell = MAX_NEIGHBORS;
+    Grid.ElementsPerCell = 2048;
     Grid.Elements = (int *)calloc(Grid.CellCount * Grid.ElementsPerCell, sizeof(int));
     Grid.ElementCounts = (int *)calloc(Grid.CellCount, sizeof(int));
 
