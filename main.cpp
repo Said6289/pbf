@@ -3,6 +3,8 @@
 #include <SDL.h>
 #include <SDL_opengl.h>
 
+#define ArrayCount(a) (sizeof(a)/sizeof(*a))
+
 typedef void (APIENTRY *gl_gen_buffers)(GLsizei, GLuint *);
 typedef void (APIENTRY *gl_bind_buffer)(GLenum, GLuint);
 typedef void (APIENTRY *gl_buffer_data)(GLenum, GLsizeiptr, const GLvoid *, GLenum);
@@ -30,6 +32,12 @@ typedef void (APIENTRY *gl_uniform_1i)(GLint, GLint);
 typedef GLuint (APIENTRY *gl_create_shader)(GLenum);
 typedef GLuint (APIENTRY *gl_create_program)(void);
 typedef void (APIENTRY *gl_get_shaderiv)(GLuint, GLenum, GLint *);
+typedef void (APIENTRY *gl_dispatch_compute)(GLuint, GLuint, GLuint);
+typedef void (APIENTRY *gl_gen_framebuffers)(GLsizei, GLuint *);
+typedef void (APIENTRY *gl_bind_framebuffer)(GLenum, GLuint);
+typedef void (APIENTRY *gl_framebuffer_texture_2d)(GLenum, GLenum, GLuint, GLuint, GLint);
+typedef void (APIENTRY *gl_bind_image_texture)(GLuint, GLuint, GLint, GLboolean, GLint, GLenum, GLenum);
+typedef void (APIENTRY *gl_tex_storage_2d)(GLenum, GLsizei, GLenum, GLsizei, GLsizei);
 
 static gl_gen_buffers glGenBuffers = 0;
 static gl_bind_buffer glBindBuffer = 0;
@@ -55,6 +63,12 @@ static gl_uniform_1f glUniform1f = 0;
 static gl_uniform_2f glUniform2f = 0;
 static gl_uniform_1i glUniform1i = 0;
 static gl_get_shaderiv glGetShaderiv = 0;
+static gl_dispatch_compute glDispatchCompute = 0;
+static gl_gen_framebuffers glGenFramebuffers = 0;
+static gl_bind_framebuffer glBindFramebuffer = 0;
+static gl_framebuffer_texture_2d glFramebufferTexture2D = 0;
+static gl_bind_image_texture glBindImageTexture = 0;
+static gl_tex_storage_2d glTexStorage2D = 0;
 
 static void
 LoadOpenGLFunctions()
@@ -83,6 +97,12 @@ LoadOpenGLFunctions()
     glUniform1i = (gl_uniform_1i) SDL_GL_GetProcAddress("glUniform1i");
     glUniformMatrix4fv = (gl_uniform_matrix_4fv) SDL_GL_GetProcAddress("glUniformMatrix4fv");
     glGetShaderiv = (gl_get_shaderiv)SDL_GL_GetProcAddress("glGetShaderiv");
+    glDispatchCompute = (gl_dispatch_compute)SDL_GL_GetProcAddress("glDispatchCompute");
+    glGenFramebuffers = (gl_gen_framebuffers)SDL_GL_GetProcAddress("glGenFramebuffers");
+    glBindFramebuffer = (gl_bind_framebuffer)SDL_GL_GetProcAddress("glBindFramebuffer");
+    glFramebufferTexture2D = (gl_framebuffer_texture_2d)SDL_GL_GetProcAddress("glFramebufferTexture2D");
+    glBindImageTexture = (gl_bind_image_texture)SDL_GL_GetProcAddress("glBindImageTexture");
+    glTexStorage2D = (gl_tex_storage_2d)SDL_GL_GetProcAddress("glTexStorage2D");
 }
 
 #include "work_queue.h"
@@ -101,15 +121,18 @@ main(void)
 
     SDL_Window *Window = SDL_CreateWindow("fluid", SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED, 512, 512, SDL_WINDOW_OPENGL | SDL_WINDOW_RESIZABLE);
 
+    SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_ES);
+    SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 3);
+    SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 1);
+
     SDL_GL_SetAttribute(SDL_GL_RED_SIZE, 8);
     SDL_GL_SetAttribute(SDL_GL_GREEN_SIZE, 8);
     SDL_GL_SetAttribute(SDL_GL_BLUE_SIZE, 8);
     SDL_GL_SetAttribute(SDL_GL_ALPHA_SIZE, 8);
     SDL_GL_SetAttribute(SDL_GL_DOUBLEBUFFER, 1);
-    SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 3);
-    SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 1);
 
     SDL_GLContext context = SDL_GL_CreateContext(Window);
+    assert(context);
 
     LoadOpenGLFunctions();
 

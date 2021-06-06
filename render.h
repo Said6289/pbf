@@ -1,5 +1,6 @@
 struct opengl {
     GLuint ShaderProgram;
+    GLuint ComputeShaderProgram;
     GLuint VAO;
     GLuint VBO;
 
@@ -7,6 +8,9 @@ struct opengl {
     GLuint Metaballs;
     GLuint XScale;
     GLuint YScale;
+
+    GLuint FieldFramebuffer;
+    GLuint FieldTexture;
 
     float *Vertices;
     int VertexCount;

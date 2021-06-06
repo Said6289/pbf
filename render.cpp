@@ -13,28 +13,136 @@ static const char *FragmentShaderCode = R"glsl(
     }
 )glsl";
 
+static const char *ComputeShaderCode = R"glsl(
+    #version 310 es
+
+    precision mediump image2D;
+
+    layout(local_size_x = 1, local_size_y = 1, local_size_z = 1) in;
+
+    layout(r32f, binding = 0) uniform image2D Field;
+
+    void main()
+    {
+        uvec2 Pixel = gl_WorkGroupID.xy;
+        uvec2 GridSize = gl_NumWorkGroups.xy;
+
+        // TODO(said): Add #defines here
+        float WORLD_WIDTH = 10.0;
+        float WORLD_HEIGHT = 10.0;
+        vec2 WorldSize = vec2(WORLD_WIDTH, WORLD_HEIGHT);
+        float ParticleRadius = 0.0125;
+        float H = ParticleRadius * 12.0;
+        ivec2 HashGridSize = ivec2(WorldSize / H);
+
+        vec2 P = (vec2(Pixel) / vec2(GridSize - uvec2(1)) - 0.5) * WorldSize;
+
+        float FieldValue = 0.0;
+
+        ivec2 CenterCell = ivec2((P + 0.5 * WorldSize) / H);
+
+        for (int Row = 0; Row < 3; ++Row) {
+            for (int Col = 0; Col < 3; ++Col) {
+                ivec2 Cell = CenterCell - ivec2(1) + ivec2(Col, Row);
+
+                bool IsInvalid = Cell.x < 0 || Cell.x >= HashGridSize.x || Cell.y < 0 || Cell.y >= HashGridSize.y;
+                if (IsInvalid) {
+                    continue;
+                }
+
+                // int ElementCount = GetElementCount(HashGrid, Cell);
+                int ElementCount = 1;
+                for (int ElementIndex = 0;
+                     ElementIndex < ElementCount;
+                     ++ElementIndex)
+                {
+                    vec2 ParticleP = vec2(Cell) * H - 0.5f * WorldSize;
+                    vec2 R = ParticleP - P;
+                    float Radius = ParticleRadius;
+                    FieldValue += (Radius * Radius) / dot(R, R);
+                }
+            }
+        }
+
+        imageStore(Field, ivec2(Pixel), vec4(FieldValue, 0, 0, 0));
+    }
+)glsl";
+
+static GLuint
+CompileShader(GLuint ShaderType, const char *Code)
+{
+    GLuint Shader = glCreateShader(ShaderType);
+    glShaderSource(Shader, 1, &Code, 0);
+    glCompileShader(Shader);
+
+    GLint status = 0;
+    glGetShaderiv(Shader, GL_COMPILE_STATUS, &status);
+    if (status != GL_TRUE) {
+        char Buffer[4096];
+        int BufferSize = 0;
+        glGetShaderInfoLog(Shader, ArrayCount(Buffer) - 1, &BufferSize, Buffer);
+        Buffer[BufferSize] = 0;
+
+        printf("Error compiling shader:\n");
+        printf("%s\n", Buffer);
+    }
+
+    return Shader;
+}
+
 static void
-InitializeOpenGL(opengl *OpenGL, hash_grid HashGrid, int ParticleCount, particle *Particles) {
-    GLint status;
+LinkProgram(GLuint Program)
+{
+    glLinkProgram(Program);
 
-    GLuint VertexShader = glCreateShader(GL_VERTEX_SHADER);
-    glShaderSource(VertexShader, 1, &VertexShaderCode, 0);
-    glCompileShader(VertexShader);
-    glGetShaderiv(VertexShader, GL_COMPILE_STATUS, &status);
-    assert(status == GL_TRUE);
+    GLint status = 0;
+    glGetProgramiv(Program, GL_LINK_STATUS, &status);
+    if (status != GL_TRUE) {
+        char Buffer[4096];
+        int BufferSize = 0;
+        glGetProgramInfoLog(Program, ArrayCount(Buffer) - 1, &BufferSize, Buffer);
+        Buffer[BufferSize] = 0;
 
-    GLuint FragmentShader = glCreateShader(GL_FRAGMENT_SHADER);
-    glShaderSource(FragmentShader, 1, &FragmentShaderCode, 0);
-    glCompileShader(FragmentShader);
-    glGetShaderiv(FragmentShader, GL_COMPILE_STATUS, &status);
-    assert(status == GL_TRUE);
+        printf("Error linking program:\n");
+        printf("%s\n", Buffer);
+    }
+}
+
+#define AssertGLError() AssertGLError_(__FILE__, __LINE__)
+
+static void
+AssertGLError_(char *File, int Line)
+{
+    GLenum Code = glGetError();
+    const char *CodeName = 0;
+    switch (Code) {
+        case GL_NO_ERROR: CodeName = "GL_NO_ERROR"; break;
+        case GL_INVALID_ENUM: CodeName = "GL_INVALID_ENUM"; break;
+        case GL_INVALID_VALUE: CodeName = "GL_INVALID_VALUE"; break;
+        case GL_INVALID_OPERATION: CodeName = "GL_INVALID_OPERATION"; break;
+        case GL_STACK_OVERFLOW: CodeName = "GL_INVALID_OVERFLOW"; break;
+        case GL_STACK_UNDERFLOW: CodeName = "GL_INVALID_UNDERFLOW"; break;
+        case GL_OUT_OF_MEMORY: CodeName = "GL_OUT_OF_MEMORY"; break;
+        default: CodeName = "UNKNOWN"; break;
+    }
+    if (Code != GL_NO_ERROR) {
+        printf("OpenGL error %s:%d %s\n", File, Line, CodeName);
+        assert(!"OpenGL error encountered");
+    }
+}
+
+static void
+InitializeOpenGL(opengl *OpenGL, hash_grid HashGrid, int ParticleCount, particle *Particles)
+{
+    glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
+
+    GLuint VertexShader = CompileShader(GL_VERTEX_SHADER, VertexShaderCode);
+    GLuint FragmentShader = CompileShader(GL_FRAGMENT_SHADER, FragmentShaderCode);
 
     GLuint ShaderProgram = glCreateProgram();
     glAttachShader(ShaderProgram, VertexShader);
     glAttachShader(ShaderProgram, FragmentShader);
-    glLinkProgram(ShaderProgram);
-    glGetProgramiv(ShaderProgram, GL_LINK_STATUS, &status);
-    assert(status == GL_TRUE);
+    LinkProgram(ShaderProgram);
 
     OpenGL->ShaderProgram = ShaderProgram;
     glUseProgram(ShaderProgram);
@@ -48,12 +156,32 @@ InitializeOpenGL(opengl *OpenGL, hash_grid HashGrid, int ParticleCount, particle
     glVertexAttribPointer(PosAttrib, 2, GL_FLOAT, GL_FALSE, 2 * sizeof(float), 0);
     glEnableVertexAttribArray(PosAttrib);
 
-    OpenGL->VertexCount = 4 * 8192;
+    OpenGL->VertexCount = 8 * 8192;
     OpenGL->Vertices = (float *)malloc(2 * sizeof(float) * OpenGL->VertexCount);
 
     OpenGL->GridW = 200;
     OpenGL->GridH = 200;
     OpenGL->Field = (float *)malloc((OpenGL->GridW + 1) * (OpenGL->GridH + 1) * sizeof(float));
+
+    GLuint ComputeShader = CompileShader(GL_COMPUTE_SHADER, ComputeShaderCode);
+    OpenGL->ComputeShaderProgram = glCreateProgram();
+    glAttachShader(OpenGL->ComputeShaderProgram, ComputeShader);
+    LinkProgram(OpenGL->ComputeShaderProgram);
+
+    glGenTextures(1, &OpenGL->FieldTexture);
+    glBindTexture(GL_TEXTURE_2D, OpenGL->FieldTexture);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+    glTexStorage2D(GL_TEXTURE_2D, 1, GL_R32F, OpenGL->GridW + 1, OpenGL->GridH + 1);
+    glBindImageTexture(0, OpenGL->FieldTexture, 0, GL_FALSE, 0, GL_WRITE_ONLY, GL_R32F);
+
+    glGenFramebuffers(1, &OpenGL->FieldFramebuffer);
+    glBindFramebuffer(GL_READ_FRAMEBUFFER, OpenGL->FieldFramebuffer);
+    glFramebufferTexture2D(GL_READ_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, OpenGL->FieldTexture, 0);
+
+    AssertGLError();
 }
 
 static void
@@ -170,7 +298,7 @@ RenderMarchingSquares(opengl *OpenGL, sim *Sim)
     float WorldW = WORLD_WIDTH;
     float WorldH = WORLD_HEIGHT;
 
-    float Threshold = 0.2f;
+    float Threshold = 1.0f;
 
     int GridW = OpenGL->GridW;
     int GridH = OpenGL->GridH;
@@ -178,44 +306,12 @@ RenderMarchingSquares(opengl *OpenGL, sim *Sim)
     float CellH = WorldH / GridH;
     float *Field = OpenGL->Field;
 
-    int TileSize = 32;
-    int TileCountX = ((GridW + 1) + TileSize - 1) / TileSize;
-    int TileCountY = ((GridH + 1) + TileSize - 1) / TileSize;
+    glUseProgram(OpenGL->ComputeShaderProgram);
+    glDispatchCompute(GridW + 1, GridH + 1, 1);
+    // TODO(said): Barrier?
 
-    int TileCount = TileCountX * TileCountY;
-
-    work_queue *Queue = &GlobalWorkQueue;
-    ResetQueue(Queue);
-
-    field_eval_work Works[128];
-    int WorkCount = 0;
-
-    for (int TileX = 0; TileX < TileCountX; ++TileX) {
-        for (int TileY = 0; TileY < TileCountY; ++TileY) {
-            assert(WorkCount < 128);
-            field_eval_work *Work = Works + WorkCount++;
-
-            Work->HashGrid = HashGrid;
-            Work->CellW = CellW;
-            Work->CellH = CellH;
-            Work->GridW = GridW;
-            Work->Field = Field;
-            Work->Particles = Particles;
-
-            Work->XStart = TileX * TileSize;
-            Work->YStart = TileY * TileSize;
-
-            Work->XEnd = Work->XStart + TileSize;
-            Work->YEnd = Work->YStart + TileSize;
-
-            if (Work->XEnd > (GridW + 1)) Work->XEnd = (GridW + 1);
-            if (Work->YEnd > (GridH + 1)) Work->YEnd = (GridH + 1);
-
-            AddEntry(Queue, Work, EvaluateFieldTile);
-        }
-    }
-
-    FinishWork(Queue);
+    glBindFramebuffer(GL_READ_FRAMEBUFFER, OpenGL->FieldFramebuffer);
+    glReadPixels(0, 0, GridW + 1, GridH + 1, GL_RED, GL_FLOAT, OpenGL->Field);
 
     int LineIndex = 0;
 

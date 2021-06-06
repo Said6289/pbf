@@ -13,7 +13,7 @@
 #define H6 (H*H*H*H*H*H)
 #define H9 (H*H*H*H*H*H*H*H*H)
 
-#define MAX_NEIGHBORS 2048
+#define MAX_NEIGHBORS 4096
 
 #define WORLD_WIDTH 10.0f
 #define WORLD_HEIGHT 10.0f
@@ -49,6 +49,8 @@ struct particle {
 };
 
 struct sim {
+    float Time;
+
     int ParticleCount;
     particle *Particles;
 

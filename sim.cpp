@@ -139,6 +139,19 @@ Simulate(sim *Sim)
         if (Sim->Pulling) {
             P->V += (Sim->PullPoint - P->P) * 3.0f * dt;
         }
+
+        { // NOTE(said): Waves
+            v2 WaveP = V2(fmodf(2.0f * Sim->Time, WORLD_WIDTH), 0);
+            WaveP.x -= WORLD_WIDTH * 0.5f;
+
+            float D = P->P.x - WaveP.x;
+            D /= 0.125f * WORLD_WIDTH;
+
+            if (D > 0 && D < 1) {
+                P->V.x += 10.0f * dt;
+            }
+        }
+
         P->P += P->V * dt;
     }
 
@@ -261,6 +274,8 @@ Simulate(sim *Sim)
             P->V.y = -P->V.y * Elasticity;
         }
     }
+
+    Sim->Time += dt;
 }
 
 static void
