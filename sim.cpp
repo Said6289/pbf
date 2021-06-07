@@ -317,7 +317,7 @@ InitSim(sim *Sim)
     Grid.Width = WORLD_WIDTH / Grid.CellDim;
     Grid.Height = WORLD_HEIGHT / Grid.CellDim;
     Grid.CellCount = Grid.Width * Grid.Height;
-    Grid.ElementsPerCell = 2048;
+    Grid.ElementsPerCell = 64;
     Grid.Elements = (int *)calloc(Grid.CellCount * Grid.ElementsPerCell, sizeof(int));
     Grid.ElementCounts = (int *)calloc(Grid.CellCount, sizeof(int));
 

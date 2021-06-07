@@ -137,12 +137,12 @@ main(void)
     SDL_GL_SetAttribute(SDL_GL_ALPHA_SIZE, 8);
     SDL_GL_SetAttribute(SDL_GL_DOUBLEBUFFER, 1);
 
+    SDL_GL_SetSwapInterval(1);
+
     SDL_GLContext context = SDL_GL_CreateContext(Window);
     assert(context);
 
     LoadOpenGLFunctions();
-
-    SDL_GL_SetSwapInterval(1);
 
     InitQueue(&GlobalWorkQueue);
 

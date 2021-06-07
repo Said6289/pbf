@@ -24,6 +24,7 @@ struct opengl {
 
 struct field_eval_work {
     hash_grid HashGrid;
+    float *HashGridData;
     float CellW;
     float CellH;
     int GridW;

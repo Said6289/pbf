@@ -36,8 +36,9 @@ static const char *ComputeShaderCode = R"glsl(
         float ParticleRadius = 0.0125;
         float H = ParticleRadius * 12.0;
         ivec2 HashGridSize = ivec2(WorldSize / H);
+        vec2 CellSize = WorldSize / vec2(GridSize);
 
-        vec2 P = (vec2(Pixel) / vec2(GridSize - uvec2(1)) - 0.5) * WorldSize;
+        vec2 P = -0.5f * WorldSize + vec2(Pixel) * CellSize;
 
         float FieldValue = 0.0;
 
@@ -52,15 +53,16 @@ static const char *ComputeShaderCode = R"glsl(
                     continue;
                 }
 
-                for (int i = 0; i < 2048; ++i) {
+                for (int i = 0; i < 64; ++i) {
                     vec4 ParticleP = imageLoad(HashGrid, ivec2(Cell.x + Cell.y * HashGridSize.x, i));
-                    if (ParticleP.a == 0.0) {
+                    if (ParticleP.a < 1.0) {
                         break;
                     }
 
                     vec2 D = ParticleP.xy - P;
-                    float R = ParticleRadius;
-                    FieldValue += (R * R) / dot(D, D);
+                    float R = ParticleP.z;
+                    float DistSq = dot(D, D);
+                    FieldValue += (R * R) / DistSq;
                 }
             }
         }
@@ -136,6 +138,7 @@ static void
 InitializeOpenGL(opengl *OpenGL, hash_grid HashGrid, int ParticleCount, particle *Particles)
 {
     glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
+    glPixelStorei(GL_PACK_ALIGNMENT, 1);
 
     GLuint VertexShader = CompileShader(GL_VERTEX_SHADER, VertexShaderCode);
     GLuint FragmentShader = CompileShader(GL_FRAGMENT_SHADER, FragmentShaderCode);
@@ -226,6 +229,13 @@ FieldLerp(v2 P0, float F0, v2 P1, float F1, float Threshold)
     return Result;
 }
 
+static int
+GetHashGridDataIndex(hash_grid HashGrid, int x, int y, int i)
+{
+    int Index = (x + y * HashGrid.Width) + i * HashGrid.Width * HashGrid.Height;
+    return 4 * Index;
+}
+
 static void
 EvaluateFieldTile(void *Data)
 {
@@ -247,37 +257,36 @@ EvaluateFieldTile(void *Data)
     float WorldH = WORLD_HEIGHT;
 
     for (int XIndex = XStart; XIndex < XEnd; ++XIndex) {
-        float X0 = -0.5f * WorldW + XIndex * CellW;
-
         for (int YIndex = YStart; YIndex < YEnd; ++YIndex) {
-            float Y0 = -0.5f * WorldH + YIndex * CellH;
-
             float FieldValue = 0.0f;
             {
-                v2 P = V2(X0, Y0);
+                v2 P = -0.5f * V2(WorldW, WorldH) + V2(XIndex, YIndex) * V2(CellW, CellH);
 
-                hash_grid_cell CenterCell = GetCell(HashGrid, P);
+                v2 CenterCell = (P + 0.5f * V2(WorldW, WorldH)) * (1.0f / H);
+                int CenterCellX = CenterCell.x;
+                int CenterCellY = CenterCell.y;
 
                 for (int Row = 0; Row < 3; ++Row) {
                     for (int Col = 0; Col < 3; ++Col) {
-                        int CellX = CenterCell.x - 1 + Col;
-                        int CellY = CenterCell.y - 1 + Row;
+                        int CellX = CenterCellX - 1 + Col;
+                        int CellY = CenterCellY - 1 + Row;
 
-                        if (!IsWithinBounds(HashGrid, CellX, CellY)) {
+                        bool IsInvalid = CellX < 0 || CellX >= HashGrid.Width || CellY < 0 || CellY >= HashGrid.Height;
+                        if (IsInvalid) {
                             continue;
                         }
 
-                        hash_grid_cell Cell = GetCell(HashGrid, CellX, CellY);
-                        int ElementCount = GetElementCount(HashGrid, Cell);
-                        for (int ElementIndex = 0;
-                             ElementIndex < ElementCount;
-                             ++ElementIndex)
-                        {
-                            particle Particle = Particles[Cell.Data[ElementIndex]];
 
-                            float MX = Particle.P.x;
-                            float MY = Particle.P.y;
-                            float MR = PARTICLE_RADIUS;
+                        for (int i = 0; i < HashGrid.ElementsPerCell; ++i)
+                        {
+                            int Index = GetHashGridDataIndex(HashGrid, CellX, CellY, i);
+                            if (Work->HashGridData[Index + 3] < 1) {
+                                break;
+                            }
+
+                            float MX = Work->HashGridData[Index + 0];
+                            float MY = Work->HashGridData[Index + 1];
+                            float MR = Work->HashGridData[Index + 2];
 
                             float dX = MX - P.x;
                             float dY = MY - P.y;
@@ -327,6 +336,7 @@ CPUEvaluateField(sim *Sim, opengl *OpenGL)
             field_eval_work *Work = Works + WorkCount++;
 
             Work->HashGrid = HashGrid;
+            Work->HashGridData = OpenGL->HashGridData;
             Work->CellW = CellW;
             Work->CellH = CellH;
             Work->GridW = GridW;
@@ -353,53 +363,33 @@ static void
 GPUEvaluateField(sim *Sim, opengl *OpenGL)
 {
     hash_grid HashGrid = Sim->HashGrid;
-    int ParticleCount = Sim->ParticleCount;
-    particle *Particles = Sim->Particles;
-
-    float WorldW = WORLD_WIDTH;
-    float WorldH = WORLD_HEIGHT;
 
     int GridW = OpenGL->GridW;
     int GridH = OpenGL->GridH;
-    float CellW = WorldW / GridW;
-    float CellH = WorldH / GridH;
-    float *Field = OpenGL->Field;
-
-    for (int y = 0; y < HashGrid.Height; ++y) {
-        for (int x = 0; x < HashGrid.Width; ++x) {
-
-            hash_grid_cell Cell = GetCell(HashGrid, x, y);
-            int ElementCount = GetElementCount(HashGrid, Cell);
-            int Base = (x + y * HashGrid.Width);
-
-            for (int i = 0; i < ElementCount; ++i) {
-                particle Particle = Particles[Cell.Data[i]];
-
-                int Index = Base + i * HashGrid.ElementsPerCell;
-
-                OpenGL->HashGridData[0 + Index * 4] = Particle.P.x;
-                OpenGL->HashGridData[1 + Index * 4] = Particle.P.y;
-                OpenGL->HashGridData[2 + Index * 4] = 0;
-                OpenGL->HashGridData[3 + Index * 4] = 1;
-            }
-            if (ElementCount < HashGrid.ElementsPerCell) {
-                int Index = Base + ElementCount * HashGrid.ElementsPerCell;
-                OpenGL->HashGridData[3 + Index * 4] = 0;
-            }
-        }
-    }
 
     glBindTexture(GL_TEXTURE_2D, OpenGL->HashGridTexture);
     glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, HashGrid.Width * HashGrid.Height, HashGrid.ElementsPerCell, GL_RGBA, GL_FLOAT, OpenGL->HashGridData);
-    glMemoryBarrier(GL_ALL_BARRIER_BITS);
 
     glUseProgram(OpenGL->ComputeShaderProgram);
     glDispatchCompute(GridW + 1, GridH + 1, 1);
-    glMemoryBarrier(GL_ALL_BARRIER_BITS);
+    glMemoryBarrier(GL_SHADER_IMAGE_ACCESS_BARRIER_BIT);
 
     glBindFramebuffer(GL_READ_FRAMEBUFFER, OpenGL->FieldFramebuffer);
-    glReadPixels(0, 0, GridW + 1, GridH + 1, GL_RED, GL_FLOAT, Field);
-    glMemoryBarrier(GL_ALL_BARRIER_BITS);
+    glReadPixels(0, 0, GridW + 1, GridH + 1, GL_RED, GL_FLOAT, OpenGL->Field);
+}
+
+static void
+DumpField(opengl *OpenGL, const char *FileName)
+{
+    FILE *File = fopen(FileName, "w");
+    fprintf(File, "P2\n");
+    fprintf(File, "%u %u\n", OpenGL->GridW+1, OpenGL->GridH+1);
+    fprintf(File, "255\n");
+    for (int i = 0; i < (OpenGL->GridW+1)*(OpenGL->GridH+1); ++i) {
+        uint32_t F = OpenGL->Field[i] * 255.0f;
+        fprintf(File, "%u\n", F);
+    }
+    fclose(File);
 }
 
 static void
@@ -418,6 +408,32 @@ RenderMarchingSquares(opengl *OpenGL, sim *Sim)
     float WorldW = WORLD_WIDTH;
     float WorldH = WORLD_HEIGHT;
 
+    for (int y = 0; y < HashGrid.Height; ++y) {
+        for (int x = 0; x < HashGrid.Width; ++x) {
+
+            hash_grid_cell Cell = GetCell(HashGrid, x, y);
+            int ElementCount = GetElementCount(HashGrid, Cell);
+
+            for (int ElementIndex = 0;
+                 ElementIndex < ElementCount;
+                 ++ElementIndex)
+            {
+                particle Particle = Particles[Cell.Data[ElementIndex]];
+
+                int Index = GetHashGridDataIndex(HashGrid, x, y, ElementIndex);
+
+                OpenGL->HashGridData[Index + 0] = Particle.P.x;
+                OpenGL->HashGridData[Index + 1] = Particle.P.y;
+                OpenGL->HashGridData[Index + 2] = PARTICLE_RADIUS;
+                OpenGL->HashGridData[Index + 3] = 1;
+            }
+            if (ElementCount < HashGrid.ElementsPerCell) {
+                int Index = GetHashGridDataIndex(HashGrid, x, y, ElementCount);
+                OpenGL->HashGridData[Index + 3] = 0;
+            }
+        }
+    }
+
     float Threshold = 0.2f;
 
     int GridW = OpenGL->GridW;
@@ -426,7 +442,7 @@ RenderMarchingSquares(opengl *OpenGL, sim *Sim)
     float CellH = WorldH / GridH;
     float *Field = OpenGL->Field;
 
-    GPUEvaluateField(Sim, OpenGL);
+    CPUEvaluateField(Sim, OpenGL);
 
     int LineIndex = 0;
 
@@ -578,7 +594,7 @@ RenderMarchingSquares(opengl *OpenGL, sim *Sim)
 static void
 Render(sim *Sim, opengl *OpenGL, float Width, float Height)
 {
-    glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
+    glClearColor(0.0f, 0.0f, 0.0f, 0.0f);
     glClear(GL_COLOR_BUFFER_BIT);
 
     float AspectRatio = (Width / Height);
