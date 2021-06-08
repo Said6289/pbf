@@ -813,15 +813,15 @@ Render(sim *Sim, opengl *OpenGL, float Width, float Height, float RenderTime, fl
     char Buffer[64];
     float PenY = 0;
 
-    sprintf(Buffer, "Sim: %.3f ms", SimTime * 1000.0f);
+    sprintf(Buffer, "Sim: %.1f ms", SimTime * 1000.0f);
     PushText(OpenGL, V2(0, PenY), Buffer);
     PenY += OpenGL->Font.PixelHeight;
 
-    sprintf(Buffer, "Render: %.3f ms", RenderTime * 1000.0f);
+    sprintf(Buffer, "Render: %.1f ms", RenderTime * 1000.0f);
     PushText(OpenGL, V2(0, PenY), Buffer);
     PenY += OpenGL->Font.PixelHeight;
 
-    sprintf(Buffer, "Total: %.3f ms", (SimTime + RenderTime) * 1000.0f);
+    sprintf(Buffer, "Total: %.1f ms", (SimTime + RenderTime) * 1000.0f);
     PushText(OpenGL, V2(0, PenY), Buffer);
     PenY += OpenGL->Font.PixelHeight;
 
