@@ -1,6 +1,25 @@
+#define STB_TRUETYPE_IMPLEMENTATION
+#include "stb_truetype.h"
+
+struct font_info {
+    stbtt_bakedchar *Chars;
+    uint8_t *FontBitmap;
+    uint16_t Width;
+    uint16_t Height;
+    float Ascent;
+    float PixelHeight;
+};
+
+struct vertex {
+    v2 P;
+    v2 UV;
+};
+
 struct opengl {
     GLuint ShaderProgram;
     GLuint ComputeShaderProgram;
+    GLuint TextProgram;
+
     GLuint VAO;
     GLuint VBO;
 
@@ -12,14 +31,19 @@ struct opengl {
     GLuint FieldFramebuffer;
     GLuint FieldTexture;
     GLuint HashGridTexture;
+    GLuint FontTexture;
+    GLuint ResolutionUniform;
 
-    float *Vertices;
-    int VertexCount;
+    vertex *Vertices;
+    uint16_t VertexCapacity;
+    uint16_t VertexSize;
 
     int GridW;
     int GridH;
     float *Field;
     float *HashGridData;
+
+    font_info Font;
 };
 
 struct field_eval_work {

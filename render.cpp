@@ -1,5 +1,11 @@
 static const char *VertexShaderCode = R"glsl(
-    attribute vec2 position;
+    #version 310 es
+
+    precision mediump float;
+
+    layout(location = 0) in vec2 position;
+    layout(location = 1) in vec2 uv;
+
     void main()
     {
         gl_Position = vec4(position.x, position.y, 0.0, 1.0);
@@ -7,9 +13,53 @@ static const char *VertexShaderCode = R"glsl(
 )glsl";
 
 static const char *FragmentShaderCode = R"glsl(
+    #version 310 es
+
+    precision mediump float;
+
+    out vec4 FragColor;
+
     void main()
     {
-        gl_FragColor = vec4(0.0, 1.0, 1.0, 1.0);
+        FragColor = vec4(0.0, 1.0, 1.0, 1.0);
+    }
+)glsl";
+
+static const char *TextVertShaderCode = R"glsl(
+    #version 310 es
+
+    precision mediump float;
+
+    layout(location = 0) in vec2 in_Position;
+    layout(location = 1) in vec2 in_UV;
+
+    uniform vec2 Resolution;
+
+    smooth out vec2 UV;
+
+    void main()
+    {
+        UV = in_UV;
+        vec2 P = 2.0 * (in_Position / Resolution) - 1.0;
+        P.y = -P.y;
+        gl_Position = vec4(P, 0.0, 1.0);
+    }
+)glsl";
+
+static const char *TextFragShaderCode = R"glsl(
+    #version 310 es
+
+    precision mediump float;
+
+    smooth in vec2 UV;
+    out vec4 FragColor;
+
+    uniform sampler2D Font;
+
+    void main()
+    {
+        vec4 Alpha = texture(Font, UV);
+        FragColor = vec4(0.0, 1.0, 1.0, Alpha.r);
     }
 )glsl";
 
@@ -71,6 +121,83 @@ static const char *ComputeShaderCode = R"glsl(
     }
 )glsl";
 
+#define AssertGLError() AssertGLError_(__FILE__, __LINE__)
+
+static void
+AssertGLError_(char *File, int Line)
+{
+    GLenum Code = glGetError();
+    const char *CodeName = 0;
+    switch (Code) {
+        case GL_NO_ERROR: CodeName = "GL_NO_ERROR"; break;
+        case GL_INVALID_ENUM: CodeName = "GL_INVALID_ENUM"; break;
+        case GL_INVALID_VALUE: CodeName = "GL_INVALID_VALUE"; break;
+        case GL_INVALID_OPERATION: CodeName = "GL_INVALID_OPERATION"; break;
+        case GL_STACK_OVERFLOW: CodeName = "GL_INVALID_OVERFLOW"; break;
+        case GL_STACK_UNDERFLOW: CodeName = "GL_INVALID_UNDERFLOW"; break;
+        case GL_OUT_OF_MEMORY: CodeName = "GL_OUT_OF_MEMORY"; break;
+        default: CodeName = "UNKNOWN"; break;
+    }
+    if (Code != GL_NO_ERROR) {
+        printf("OpenGL error %s:%d %s\n", File, Line, CodeName);
+        assert(!"OpenGL error encountered");
+    }
+}
+
+static font_info
+InitFontTexture(opengl *OpenGL)
+{
+    font_info Result = {};
+
+    char *FilePath = "font.ttf";
+    FILE *File = fopen(FilePath, "rb");
+    if (!File) {
+        return Result;
+    }
+
+    fseek(File, 0, SEEK_END);
+    size_t FileSize = ftell(File);
+    fseek(File, 0, SEEK_SET);
+
+    uint8_t *FileBuffer = (uint8_t *)malloc(FileSize * sizeof(uint8_t));
+    fread(FileBuffer, 1, FileSize, File);
+
+    fclose(File);
+
+    int StartChar = 0x20;
+    int NumChars = 0x7E - 0x20;
+
+    Result.PixelHeight = 16;
+    Result.Width = 256;
+    Result.Height = 256;
+    Result.FontBitmap = (uint8_t *)malloc(Result.Width * Result.Height * sizeof(uint8_t));
+    Result.Chars = (stbtt_bakedchar *)malloc(NumChars * sizeof(stbtt_bakedchar));
+
+    int Rows = stbtt_BakeFontBitmap(
+            FileBuffer, 0, Result.PixelHeight, 
+            Result.FontBitmap, Result.Width, Result.Height,
+            0x20, 0x7E - 0x20,
+            Result.Chars);
+
+    float Descent, LineGap;
+    stbtt_GetScaledFontVMetrics(FileBuffer, 0, Result.PixelHeight, &Result.Ascent, &Descent, &LineGap);
+
+    assert(Rows > 0);
+
+    free(FileBuffer);
+
+    glActiveTexture(GL_TEXTURE0);
+    glGenTextures(1, &OpenGL->FontTexture);
+    glBindTexture(GL_TEXTURE_2D, OpenGL->FontTexture);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_LUMINANCE, Result.Width, Result.Height, 0, GL_LUMINANCE, GL_UNSIGNED_BYTE, Result.FontBitmap);
+
+    return Result;
+}
+
 static GLuint
 CompileShader(GLuint ShaderType, const char *Code)
 {
@@ -111,38 +238,17 @@ LinkProgram(GLuint Program)
     }
 }
 
-#define AssertGLError() AssertGLError_(__FILE__, __LINE__)
-
-static void
-AssertGLError_(char *File, int Line)
-{
-    GLenum Code = glGetError();
-    const char *CodeName = 0;
-    switch (Code) {
-        case GL_NO_ERROR: CodeName = "GL_NO_ERROR"; break;
-        case GL_INVALID_ENUM: CodeName = "GL_INVALID_ENUM"; break;
-        case GL_INVALID_VALUE: CodeName = "GL_INVALID_VALUE"; break;
-        case GL_INVALID_OPERATION: CodeName = "GL_INVALID_OPERATION"; break;
-        case GL_STACK_OVERFLOW: CodeName = "GL_INVALID_OVERFLOW"; break;
-        case GL_STACK_UNDERFLOW: CodeName = "GL_INVALID_UNDERFLOW"; break;
-        case GL_OUT_OF_MEMORY: CodeName = "GL_OUT_OF_MEMORY"; break;
-        default: CodeName = "UNKNOWN"; break;
-    }
-    if (Code != GL_NO_ERROR) {
-        printf("OpenGL error %s:%d %s\n", File, Line, CodeName);
-        assert(!"OpenGL error encountered");
-    }
-}
-
 static void
 InitializeOpenGL(opengl *OpenGL, hash_grid HashGrid, int ParticleCount, particle *Particles)
 {
+    glEnable(GL_BLEND);
+    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+
     glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
     glPixelStorei(GL_PACK_ALIGNMENT, 1);
 
     GLuint VertexShader = CompileShader(GL_VERTEX_SHADER, VertexShaderCode);
     GLuint FragmentShader = CompileShader(GL_FRAGMENT_SHADER, FragmentShaderCode);
-
     GLuint ShaderProgram = glCreateProgram();
     glAttachShader(ShaderProgram, VertexShader);
     glAttachShader(ShaderProgram, FragmentShader);
@@ -156,12 +262,15 @@ InitializeOpenGL(opengl *OpenGL, hash_grid HashGrid, int ParticleCount, particle
     glBindBuffer(GL_ARRAY_BUFFER, VBO);
     OpenGL->VBO = VBO;
 
-    GLint PosAttrib = glGetAttribLocation(ShaderProgram, "position");
-    glVertexAttribPointer(PosAttrib, 2, GL_FLOAT, GL_FALSE, 2 * sizeof(float), 0);
-    glEnableVertexAttribArray(PosAttrib);
+    glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, sizeof(vertex), (const GLvoid *)offsetof(vertex, P));
+    glEnableVertexAttribArray(0);
 
-    OpenGL->VertexCount = 8 * 8192;
-    OpenGL->Vertices = (float *)malloc(2 * sizeof(float) * OpenGL->VertexCount);
+    glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, sizeof(vertex), (const GLvoid *)offsetof(vertex, UV));
+    glEnableVertexAttribArray(1);
+
+    OpenGL->VertexCapacity = 6 * 8192;
+    OpenGL->VertexSize = 0;
+    OpenGL->Vertices = (vertex *)malloc(sizeof(vertex) * OpenGL->VertexCapacity);
 
     OpenGL->GridW = 200;
     OpenGL->GridH = 200;
@@ -172,6 +281,15 @@ InitializeOpenGL(opengl *OpenGL, hash_grid HashGrid, int ParticleCount, particle
     OpenGL->ComputeShaderProgram = glCreateProgram();
     glAttachShader(OpenGL->ComputeShaderProgram, ComputeShader);
     LinkProgram(OpenGL->ComputeShaderProgram);
+
+    GLuint TextVertShader = CompileShader(GL_VERTEX_SHADER, TextVertShaderCode);
+    GLuint TextFragShader = CompileShader(GL_FRAGMENT_SHADER, TextFragShaderCode);
+    OpenGL->TextProgram = glCreateProgram();
+    glAttachShader(OpenGL->TextProgram, TextVertShader);
+    glAttachShader(OpenGL->TextProgram, TextFragShader);
+    LinkProgram(OpenGL->TextProgram);
+
+    OpenGL->ResolutionUniform = glGetUniformLocation(OpenGL->TextProgram, "Resolution");
 
     glGenTextures(1, &OpenGL->HashGridTexture);
     glBindTexture(GL_TEXTURE_2D, OpenGL->HashGridTexture);
@@ -195,24 +313,67 @@ InitializeOpenGL(opengl *OpenGL, hash_grid HashGrid, int ParticleCount, particle
     glBindFramebuffer(GL_READ_FRAMEBUFFER, OpenGL->FieldFramebuffer);
     glFramebufferTexture2D(GL_READ_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, OpenGL->FieldTexture, 0);
 
+    OpenGL->Font = InitFontTexture(OpenGL);
+
     AssertGLError();
 }
 
 static void
-PushLine(opengl *OpenGL, int Index, v2 P0, v2 P1)
+PushVertex(opengl *OpenGL, v2 P, v2 UV = V2(0, 0))
 {
-    if (Index * 2 <= OpenGL->VertexCount) {
-        P0.x = 2 * P0.x / WORLD_WIDTH;
-        P0.y = 2 * P0.y / WORLD_HEIGHT;
+    bool HasSpace = OpenGL->VertexSize < OpenGL->VertexCapacity;
+    //assert(HasSpace);
+    if (HasSpace) {
+        OpenGL->Vertices[OpenGL->VertexSize].P = P;
+        OpenGL->Vertices[OpenGL->VertexSize].UV = UV;
+        ++OpenGL->VertexSize;
+    }
+}
 
-        P1.x = 2 * P1.x / WORLD_WIDTH;
-        P1.y = 2 * P1.y / WORLD_HEIGHT;
+static void
+PushLine(opengl *OpenGL, v2 P0, v2 P1)
+{
+    P0.x = 2 * P0.x / WORLD_WIDTH;
+    P0.y = 2 * P0.y / WORLD_HEIGHT;
 
-        OpenGL->Vertices[2 * (Index * 2 + 0) + 0] = P0.x;
-        OpenGL->Vertices[2 * (Index * 2 + 0) + 1] = P0.y;
+    P1.x = 2 * P1.x / WORLD_WIDTH;
+    P1.y = 2 * P1.y / WORLD_HEIGHT;
 
-        OpenGL->Vertices[2 * (Index * 2 + 1) + 0] = P1.x;
-        OpenGL->Vertices[2 * (Index * 2 + 1) + 1] = P1.y;
+    PushVertex(OpenGL, P0);
+    PushVertex(OpenGL, P1);
+}
+
+static void
+PushQuad(opengl *OpenGL, v2 MinCorner, v2 MaxCorner, v2 MinUV, v2 MaxUV)
+{
+    v2 P0 = V2(MinCorner.x, MinCorner.y);
+    v2 P1 = V2(MaxCorner.x, MinCorner.y);
+    v2 P2 = V2(MaxCorner.x, MaxCorner.y);
+    v2 P3 = V2(MinCorner.x, MaxCorner.y);
+
+    PushVertex(OpenGL, P0, V2(MinUV.x, MinUV.y));
+    PushVertex(OpenGL, P1, V2(MaxUV.x, MinUV.y));
+    PushVertex(OpenGL, P2, V2(MaxUV.x, MaxUV.y));
+
+    PushVertex(OpenGL, P2, V2(MaxUV.x, MaxUV.y));
+    PushVertex(OpenGL, P3, V2(MinUV.x, MaxUV.y));
+    PushVertex(OpenGL, P0, V2(MinUV.x, MinUV.y));
+}
+
+static void
+PushText(opengl *OpenGL, v2 P, char *Text)
+{
+    for (char *C = Text; *C; ++C) {
+        stbtt_aligned_quad Quad;
+        stbtt_GetBakedQuad(
+                OpenGL->Font.Chars, OpenGL->Font.Width, OpenGL->Font.Height,
+                (int)(*C - 0x20),
+                &P.x, &P.y, &Quad,
+                1);
+        PushQuad(
+                OpenGL,
+                V2(Quad.x0, Quad.y0 + OpenGL->Font.Ascent), V2(Quad.x1, Quad.y1 + OpenGL->Font.Ascent),
+                V2(Quad.s0, Quad.t0), V2(Quad.s1, Quad.t1));
     }
 }
 
@@ -444,7 +605,7 @@ RenderMarchingSquares(opengl *OpenGL, sim *Sim)
 
     CPUEvaluateField(Sim, OpenGL);
 
-    int LineIndex = 0;
+    OpenGL->VertexSize = 0;
 
     float X0 = -0.5f * WorldW;
 
@@ -482,7 +643,7 @@ RenderMarchingSquares(opengl *OpenGL, sim *Sim)
             v2 P1 = {};
 
 #define L(I0, I1) FieldLerp(Corners[I0], F[I0], Corners[I1], F[I1], Threshold)
-#define LINE PushLine(OpenGL, LineIndex++, P0, P1)
+#define LINE PushLine(OpenGL, P0, P1)
 
             switch (FieldIndex) {
                 case 5: {
@@ -585,14 +746,14 @@ RenderMarchingSquares(opengl *OpenGL, sim *Sim)
     }
 
     glBindBuffer(GL_ARRAY_BUFFER, OpenGL->VBO);
-    glBufferData(GL_ARRAY_BUFFER, LineIndex * 2 * 2 * sizeof(float), OpenGL->Vertices, GL_STREAM_DRAW);
+    glBufferData(GL_ARRAY_BUFFER, OpenGL->VertexSize * sizeof(vertex), OpenGL->Vertices, GL_STREAM_DRAW);
 
     glUseProgram(OpenGL->ShaderProgram);
-    glDrawArrays(GL_LINES, 0, LineIndex * 2);
+    glDrawArrays(GL_LINES, 0, OpenGL->VertexSize);
 }
 
 static void
-Render(sim *Sim, opengl *OpenGL, float Width, float Height)
+Render(sim *Sim, opengl *OpenGL, float Width, float Height, float RenderTime, float SimTime)
 {
     glClearColor(0.0f, 0.0f, 0.0f, 0.0f);
     glClear(GL_COLOR_BUFFER_BIT);
@@ -646,4 +807,32 @@ Render(sim *Sim, opengl *OpenGL, float Width, float Height)
     GlUnitsPerMeter.y = GlH / WorldH;
 
     RenderMarchingSquares(OpenGL, Sim);
+
+    OpenGL->VertexSize = 0;
+
+    char Buffer[64];
+    float PenY = 0;
+
+    sprintf(Buffer, "Sim: %.3f ms", SimTime * 1000.0f);
+    PushText(OpenGL, V2(0, PenY), Buffer);
+    PenY += OpenGL->Font.PixelHeight;
+
+    sprintf(Buffer, "Render: %.3f ms", RenderTime * 1000.0f);
+    PushText(OpenGL, V2(0, PenY), Buffer);
+    PenY += OpenGL->Font.PixelHeight;
+
+    sprintf(Buffer, "Total: %.3f ms", (SimTime + RenderTime) * 1000.0f);
+    PushText(OpenGL, V2(0, PenY), Buffer);
+    PenY += OpenGL->Font.PixelHeight;
+
+    glBindBuffer(GL_ARRAY_BUFFER, OpenGL->VBO);
+    glBufferData(GL_ARRAY_BUFFER, OpenGL->VertexSize * sizeof(vertex), OpenGL->Vertices, GL_STREAM_DRAW);
+
+    glActiveTexture(GL_TEXTURE0);
+    glBindTexture(GL_TEXTURE_2D, OpenGL->FontTexture);
+
+    glUseProgram(OpenGL->TextProgram);
+    glUniform2f(OpenGL->ResolutionUniform, Width, Height);
+
+    glDrawArrays(GL_TRIANGLES, 0, OpenGL->VertexSize);
 }

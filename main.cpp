@@ -152,6 +152,11 @@ main(void)
     opengl OpenGL = {};
     InitializeOpenGL(&OpenGL, Sim.HashGrid, Sim.ParticleCount, Sim.Particles);
 
+    float k = 0.95f;
+    uint64_t SimTime = 0;
+    uint64_t RenderTime = 0;
+    uint64_t CounterFrequency = SDL_GetPerformanceFrequency();
+
     bool Running = true;
     while (Running) {
         SDL_Event Event;
@@ -171,11 +176,17 @@ main(void)
         Sim.PullPoint = (V2(MouseX, MouseY) * V2(1.0f / ScreenWidth, 1.0f / ScreenHeight) - V2(0.5f)) * V2(WORLD_WIDTH, -WORLD_HEIGHT);
         Sim.Pulling = ButtonState & SDL_BUTTON(SDL_BUTTON_LEFT);
 
+        uint64_t SimStart = SDL_GetPerformanceCounter();
         Simulate(&Sim);
+        uint64_t NewSimTime = SDL_GetPerformanceCounter() - SimStart;
+        SimTime = SimTime * k + (1 - k) * NewSimTime;
 
         glViewport(0, 0, ScreenWidth, ScreenHeight);
 
-        Render(&Sim, &OpenGL, ScreenWidth, ScreenHeight);
+        uint64_t RenderStart = SDL_GetPerformanceCounter();
+        Render(&Sim, &OpenGL, ScreenWidth, ScreenHeight, (float)RenderTime / (float)CounterFrequency, (float)SimTime / (float)CounterFrequency);
+        uint64_t NewRenderTime = SDL_GetPerformanceCounter() - RenderStart;
+        RenderTime = RenderTime * k + (1 - k) * NewRenderTime;
 
         SDL_GL_SwapWindow(Window);
     }
