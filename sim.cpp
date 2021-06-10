@@ -285,8 +285,8 @@ InitSim(sim *Sim)
     int ParticleCount = PARTICLES_PER_AXIS * PARTICLES_PER_AXIS;
     particle *Particles = (particle *)malloc(ParticleCount * sizeof(particle));
 
-    float Gap = 0.00f;
-    float Spacing = Gap + PARTICLE_RADIUS;
+    float Gap = 0.1f;
+    float Spacing = Gap + 2.0 * PARTICLE_RADIUS;
     for (int i = 0; i < ParticleCount; ++i) {
         float x = (i % PARTICLES_PER_AXIS) * Spacing;
         float y = (i / PARTICLES_PER_AXIS) * Spacing;
