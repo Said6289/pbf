@@ -202,7 +202,9 @@ static GLuint
 CompileShader(GLuint ShaderType, const char *Code)
 {
     GLuint Shader = glCreateShader(ShaderType);
-    glShaderSource(Shader, 1, &Code, 0);
+
+    GLint CodeSize = strlen(Code);
+    glShaderSource(Shader, 1, &Code, &CodeSize);
     glCompileShader(Shader);
 
     GLint status = 0;
@@ -753,8 +755,10 @@ RenderMarchingSquares(opengl *OpenGL, sim *Sim)
 }
 
 static void
-Render(sim *Sim, opengl *OpenGL, float Width, float Height, float RenderTime, float SimTime)
+Render(sim *Sim, opengl *OpenGL, float Width, float Height)
 {
+    glViewport(0, 0, Width, Height);
+
     glClearColor(0.0f, 0.0f, 0.0f, 0.0f);
     glClear(GL_COLOR_BUFFER_BIT);
 
@@ -806,22 +810,20 @@ Render(sim *Sim, opengl *OpenGL, float Width, float Height, float RenderTime, fl
     GlUnitsPerMeter.x = GlW / WorldW;
     GlUnitsPerMeter.y = GlH / WorldH;
 
+    TIMER_START(Timer_RenderMarchingSquares);
     RenderMarchingSquares(OpenGL, Sim);
+    TIMER_END(Timer_RenderMarchingSquares);
 
     OpenGL->VertexSize = 0;
 
     char Buffer[64];
     float PenY = 0;
 
-    sprintf(Buffer, "Sim: %.1f ms", SimTime * 1000.0f);
+    sprintf(Buffer, "Sim: %.1f ms", TIMER_GET_MS(Timer_Sim));
     PushText(OpenGL, V2(0, PenY), Buffer);
     PenY += OpenGL->Font.PixelHeight;
 
-    sprintf(Buffer, "Render: %.1f ms", RenderTime * 1000.0f);
-    PushText(OpenGL, V2(0, PenY), Buffer);
-    PenY += OpenGL->Font.PixelHeight;
-
-    sprintf(Buffer, "Total: %.1f ms", (SimTime + RenderTime) * 1000.0f);
+    sprintf(Buffer, "RenderMarchingSquares: %.1f ms", TIMER_GET_MS(Timer_RenderMarchingSquares));
     PushText(OpenGL, V2(0, PenY), Buffer);
     PenY += OpenGL->Font.PixelHeight;
 

@@ -111,6 +111,18 @@ LoadOpenGLFunctions()
     glMemoryBarrier = (gl_memory_barrier)SDL_GL_GetProcAddress("glMemoryBarrier");
 }
 
+enum timer_names {
+    Timer_Sim,
+    Timer_RenderMarchingSquares,
+    Timer_Count,
+};
+uint64_t GlobalTimers[Timer_Count][2];
+uint64_t GlobalPerformaceFreq;
+
+#define TIMER_START(name) GlobalTimers[name][0] = SDL_GetPerformanceCounter()
+#define TIMER_END(name) GlobalTimers[name][1] = (SDL_GetPerformanceCounter() - GlobalTimers[name][0]) * 0.05 + 0.95 * GlobalTimers[name][1]
+#define TIMER_GET_MS(name) (float)GlobalTimers[name][1] / (float)GlobalPerformaceFreq * 1000.0f
+
 #include "work_queue.h"
 #include "linalg.h"
 #include "sim.h"
@@ -144,6 +156,8 @@ main(void)
 
     LoadOpenGLFunctions();
 
+    GlobalPerformaceFreq = SDL_GetPerformanceFrequency();
+
     InitQueue(&GlobalWorkQueue);
 
     sim Sim = {};
@@ -151,11 +165,6 @@ main(void)
 
     opengl OpenGL = {};
     InitializeOpenGL(&OpenGL, Sim.HashGrid, Sim.ParticleCount, Sim.Particles);
-
-    float k = 0.95f;
-    uint64_t SimTime = 0;
-    uint64_t RenderTime = 0;
-    uint64_t CounterFrequency = SDL_GetPerformanceFrequency();
 
     bool Running = true;
     while (Running) {
@@ -176,17 +185,11 @@ main(void)
         Sim.PullPoint = (V2(MouseX, MouseY) * V2(1.0f / ScreenWidth, 1.0f / ScreenHeight) - V2(0.5f)) * V2(WORLD_WIDTH, -WORLD_HEIGHT);
         Sim.Pulling = ButtonState & SDL_BUTTON(SDL_BUTTON_LEFT);
 
-        uint64_t SimStart = SDL_GetPerformanceCounter();
+        TIMER_START(Timer_Sim);
         Simulate(&Sim);
-        uint64_t NewSimTime = SDL_GetPerformanceCounter() - SimStart;
-        SimTime = SimTime * k + (1 - k) * NewSimTime;
+        TIMER_END(Timer_Sim);
 
-        glViewport(0, 0, ScreenWidth, ScreenHeight);
-
-        uint64_t RenderStart = SDL_GetPerformanceCounter();
-        Render(&Sim, &OpenGL, ScreenWidth, ScreenHeight, (float)RenderTime / (float)CounterFrequency, (float)SimTime / (float)CounterFrequency);
-        uint64_t NewRenderTime = SDL_GetPerformanceCounter() - RenderStart;
-        RenderTime = RenderTime * k + (1 - k) * NewRenderTime;
+        Render(&Sim, &OpenGL, ScreenWidth, ScreenHeight);
 
         SDL_GL_SwapWindow(Window);
     }
