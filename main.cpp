@@ -113,7 +113,7 @@ LoadOpenGLFunctions()
 
 enum timer_names {
     Timer_Sim,
-    Timer_RenderMarchingSquares,
+    Timer_RenderFieldEval,
     Timer_Count,
 };
 uint64_t GlobalTimers[Timer_Count][2];
@@ -167,13 +167,25 @@ main(void)
     InitializeOpenGL(&OpenGL, Sim.HashGrid, Sim.ParticleCount, Sim.Particles);
 
     bool Running = true;
+    bool RenderContour = false;
+
     while (Running) {
+        bool ToggleRender = false;
+
         SDL_Event Event;
         while (SDL_PollEvent(&Event)) {
             if (Event.type == SDL_QUIT) {
                 Running = false;
                 break;
+            } else if (Event.type == SDL_KEYDOWN) {
+                if (Event.key.keysym.sym == SDLK_f && Event.key.repeat == 0) {
+                    ToggleRender = true; 
+                }
             }
+        }
+
+        if (ToggleRender) {
+            RenderContour = !RenderContour;
         }
 
         int ScreenWidth = 0, ScreenHeight = 0;
@@ -189,7 +201,7 @@ main(void)
         Simulate(&Sim);
         TIMER_END(Timer_Sim);
 
-        Render(&Sim, &OpenGL, ScreenWidth, ScreenHeight);
+        Render(&Sim, &OpenGL, ScreenWidth, ScreenHeight, RenderContour);
 
         SDL_GL_SwapWindow(Window);
     }

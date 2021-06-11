@@ -19,6 +19,7 @@ struct opengl {
     GLuint ShaderProgram;
     GLuint ComputeShaderProgram;
     GLuint TextProgram;
+    GLuint TextureProgram;
 
     GLuint VAO;
     GLuint VBO;

@@ -63,6 +63,46 @@ static const char *TextFragShaderCode = R"glsl(
     }
 )glsl";
 
+static const char *TextureVertShaderCode = R"glsl(
+    #version 310 es
+
+    precision mediump float;
+
+    layout(location = 0) in vec2 in_Position;
+    layout(location = 1) in vec2 in_UV;
+
+    smooth out vec2 UV;
+
+    void main()
+    {
+        UV = in_UV;
+        gl_Position = vec4(in_Position, 0.0, 1.0);
+    }
+)glsl";
+
+static const char *TextureFragShaderCode = R"glsl(
+    #version 310 es
+
+    precision mediump float;
+
+    smooth in vec2 UV;
+    out vec4 FragColor;
+
+    uniform sampler2D Texture;
+
+    void main()
+    {
+        float Field = texture(Texture, UV).r;
+
+        float Threshold = 0.2;
+        float D = 0.05;
+
+        float Edge0 = Threshold - D;
+        float Edge1 = Threshold + D;
+        FragColor = vec4(0.0, vec2(smoothstep(Edge0, Edge1, Field)), 1.0);
+    }
+)glsl";
+
 static const char *ComputeShaderCode = R"glsl(
     #version 310 es
 
@@ -79,7 +119,7 @@ static const char *ComputeShaderCode = R"glsl(
         uvec2 Pixel = gl_WorkGroupID.xy;
         uvec2 GridSize = gl_NumWorkGroups.xy;
 
-        // TODO(said): Add #defines here
+        // TODO(said): Add #defines or here
         float WORLD_WIDTH = 10.0;
         float WORLD_HEIGHT = 10.0;
         vec2 WorldSize = vec2(WORLD_WIDTH, WORLD_HEIGHT);
@@ -251,13 +291,17 @@ InitializeOpenGL(opengl *OpenGL, hash_grid HashGrid, int ParticleCount, particle
 
     GLuint VertexShader = CompileShader(GL_VERTEX_SHADER, VertexShaderCode);
     GLuint FragmentShader = CompileShader(GL_FRAGMENT_SHADER, FragmentShaderCode);
-    GLuint ShaderProgram = glCreateProgram();
-    glAttachShader(ShaderProgram, VertexShader);
-    glAttachShader(ShaderProgram, FragmentShader);
-    LinkProgram(ShaderProgram);
+    OpenGL->ShaderProgram = glCreateProgram();
+    glAttachShader(OpenGL->ShaderProgram, VertexShader);
+    glAttachShader(OpenGL->ShaderProgram, FragmentShader);
+    LinkProgram(OpenGL->ShaderProgram);
 
-    OpenGL->ShaderProgram = ShaderProgram;
-    glUseProgram(ShaderProgram);
+    GLuint TextureVertShader = CompileShader(GL_VERTEX_SHADER, TextureVertShaderCode);
+    GLuint TextureFragShader = CompileShader(GL_FRAGMENT_SHADER, TextureFragShaderCode);
+    OpenGL->TextureProgram = glCreateProgram();
+    glAttachShader(OpenGL->TextureProgram, TextureVertShader);
+    glAttachShader(OpenGL->TextureProgram, TextureFragShader);
+    LinkProgram(OpenGL->TextureProgram);
 
     GLuint VBO;
     glGenBuffers(1, &VBO);
@@ -304,8 +348,8 @@ InitializeOpenGL(opengl *OpenGL, hash_grid HashGrid, int ParticleCount, particle
 
     glGenTextures(1, &OpenGL->FieldTexture);
     glBindTexture(GL_TEXTURE_2D, OpenGL->FieldTexture);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
     glTexStorage2D(GL_TEXTURE_2D, 1, GL_R32F, OpenGL->GridW + 1, OpenGL->GridH + 1);
@@ -556,7 +600,7 @@ DumpField(opengl *OpenGL, const char *FileName)
 }
 
 static void
-RenderMarchingSquares(opengl *OpenGL, sim *Sim)
+RenderMarchingSquares(opengl *OpenGL, sim *Sim, bool RenderContour)
 {
     hash_grid HashGrid = Sim->HashGrid;
     int ParticleCount = Sim->ParticleCount;
@@ -605,157 +649,191 @@ RenderMarchingSquares(opengl *OpenGL, sim *Sim)
     float CellH = WorldH / GridH;
     float *Field = OpenGL->Field;
 
+    TIMER_START(Timer_RenderFieldEval);
     CPUEvaluateField(Sim, OpenGL);
+    TIMER_END(Timer_RenderFieldEval);
 
-    OpenGL->VertexSize = 0;
+    if (RenderContour) {
+        OpenGL->VertexSize = 0;
 
-    float X0 = -0.5f * WorldW;
+        float X0 = -0.5f * WorldW;
 
-    for (int XIndex = 0; XIndex < GridW; ++XIndex) {
+        for (int XIndex = 0; XIndex < GridW; ++XIndex) {
 
-        float Y0 = -0.5f * WorldH;
+            float Y0 = -0.5f * WorldH;
 
-        for (int YIndex = 0; YIndex < GridH; ++YIndex) {
+            for (int YIndex = 0; YIndex < GridH; ++YIndex) {
 
-            float F[4];
-            v2 Corners[4];
+                float F[4];
+                v2 Corners[4];
 
-            Corners[0] = {X0, Y0};
-            Corners[1] = {X0 + CellW, Y0};
-            Corners[2] = {X0 + CellW, Y0 + CellH};
-            Corners[3] = {X0, Y0 + CellH};
+                Corners[0] = {X0, Y0};
+                Corners[1] = {X0 + CellW, Y0};
+                Corners[2] = {X0 + CellW, Y0 + CellH};
+                Corners[3] = {X0, Y0 + CellH};
 
-            char FieldIndex = 0;
-            for (int CornerIndex = 0; CornerIndex < 4; ++CornerIndex) {
-                int Bit0 = (CornerIndex & 1);
-                int Bit1 = (CornerIndex >> 1);
+                char FieldIndex = 0;
+                for (int CornerIndex = 0; CornerIndex < 4; ++CornerIndex) {
+                    int Bit0 = (CornerIndex & 1);
+                    int Bit1 = (CornerIndex >> 1);
 
-                int XOffset = (Bit0 + Bit1) & 1;
-                int YOffset = Bit1;
+                    int XOffset = (Bit0 + Bit1) & 1;
+                    int YOffset = Bit1;
 
-                F[CornerIndex] = Field[(XIndex + XOffset) + (YIndex + YOffset) * (GridW + 1)];
-                if (F[CornerIndex] >= Threshold) {
-                    FieldIndex |= (1 << (3 - CornerIndex));
+                    F[CornerIndex] = Field[(XIndex + XOffset) + (YIndex + YOffset) * (GridW + 1)];
+                    if (F[CornerIndex] >= Threshold) {
+                        FieldIndex |= (1 << (3 - CornerIndex));
+                    }
                 }
-            }
 
-            assert(FieldIndex >= 0 && FieldIndex < 16);
+                assert(FieldIndex >= 0 && FieldIndex < 16);
 
-            v2 P0 = {};
-            v2 P1 = {};
+                v2 P0 = {};
+                v2 P1 = {};
 
 #define L(I0, I1) FieldLerp(Corners[I0], F[I0], Corners[I1], F[I1], Threshold)
 #define LINE PushLine(OpenGL, P0, P1)
 
-            switch (FieldIndex) {
-                case 5: {
-                    P0 = L(1, 0);
-                    P1 = L(3, 0);
-                    LINE;
+                switch (FieldIndex) {
+                    case 5: {
+                        P0 = L(1, 0);
+                        P1 = L(3, 0);
+                        LINE;
 
-                    P0 = L(1, 2);
-                    P1 = L(3, 2);
-                    LINE;
-                } break;
+                        P0 = L(1, 2);
+                        P1 = L(3, 2);
+                        LINE;
+                    } break;
 
-                case 6: {
-                    P0 = L(1, 0);
-                    P1 = L(2, 3);
-                    LINE;
-                } break;
+                    case 6: {
+                        P0 = L(1, 0);
+                        P1 = L(2, 3);
+                        LINE;
+                    } break;
 
-                case 7: {
-                    P0 = L(1, 0);
-                    P1 = L(3, 0);
-                    LINE;
-                } break;
+                    case 7: {
+                        P0 = L(1, 0);
+                        P1 = L(3, 0);
+                        LINE;
+                    } break;
 
-                case 8: {
-                    P0 = L(0, 1);
-                    P1 = L(0, 3);
-                    LINE;
-                } break;
+                    case 8: {
+                        P0 = L(0, 1);
+                        P1 = L(0, 3);
+                        LINE;
+                    } break;
 
-                case 9: {
-                    P0 = L(0, 1);
-                    P1 = L(3, 2);
-                    LINE;
-                } break;
+                    case 9: {
+                        P0 = L(0, 1);
+                        P1 = L(3, 2);
+                        LINE;
+                    } break;
 
-                case 10: {
-                    P0 = L(0, 1);
-                    P1 = L(2, 1);
-                    LINE;
+                    case 10: {
+                        P0 = L(0, 1);
+                        P1 = L(2, 1);
+                        LINE;
 
-                    P0 = L(2, 3);
-                    P1 = L(0, 3);
-                    LINE;
-                } break;
+                        P0 = L(2, 3);
+                        P1 = L(0, 3);
+                        LINE;
+                    } break;
 
-                case 11: {
-                    P0 = L(0, 1);
-                    P1 = L(2, 1);
-                    LINE;
-                } break;
+                    case 11: {
+                        P0 = L(0, 1);
+                        P1 = L(2, 1);
+                        LINE;
+                    } break;
 
-                case 4: {
-                    P0 = L(1, 0);
-                    P1 = L(1, 2);
-                    LINE;
-                } break;
+                    case 4: {
+                        P0 = L(1, 0);
+                        P1 = L(1, 2);
+                        LINE;
+                    } break;
 
-                case 3: {
-                    P0 = L(3, 0);
-                    P1 = L(2, 1);
-                    LINE;
-                } break;
+                    case 3: {
+                        P0 = L(3, 0);
+                        P1 = L(2, 1);
+                        LINE;
+                    } break;
 
-                case 12: {
-                    P0 = L(0, 3);
-                    P1 = L(1, 2);
-                    LINE;
-                } break;
+                    case 12: {
+                        P0 = L(0, 3);
+                        P1 = L(1, 2);
+                        LINE;
+                    } break;
 
-                case 13: {
-                    P0 = L(1, 2);
-                    P1 = L(3, 2);
-                    LINE;
-                } break;
+                    case 13: {
+                        P0 = L(1, 2);
+                        P1 = L(3, 2);
+                        LINE;
+                    } break;
 
-                case 2: {
-                    P0 = L(2, 1);
-                    P1 = L(2, 3);
-                    LINE;
-                } break;
+                    case 2: {
+                        P0 = L(2, 1);
+                        P1 = L(2, 3);
+                        LINE;
+                    } break;
 
-                case 14: {
-                    P0 = L(0, 3);
-                    P1 = L(2, 3);
-                    LINE;
-                } break;
+                    case 14: {
+                        P0 = L(0, 3);
+                        P1 = L(2, 3);
+                        LINE;
+                    } break;
 
-                case 1: {
-                    P0 = L(3, 0);
-                    P1 = L(3, 2);
-                    LINE;
-                } break;
+                    case 1: {
+                        P0 = L(3, 0);
+                        P1 = L(3, 2);
+                        LINE;
+                    } break;
+                }
+
+                Y0 += CellH;
             }
 
-            Y0 += CellH;
+            X0 += CellW;
         }
 
-        X0 += CellW;
+        glBindBuffer(GL_ARRAY_BUFFER, OpenGL->VBO);
+        glBufferData(GL_ARRAY_BUFFER, OpenGL->VertexSize * sizeof(vertex), OpenGL->Vertices, GL_STREAM_DRAW);
+
+        glUseProgram(OpenGL->ShaderProgram);
+        glDrawArrays(GL_LINES, 0, OpenGL->VertexSize);
+    } else {
+        glActiveTexture(GL_TEXTURE0);
+        glBindTexture(GL_TEXTURE_2D, OpenGL->FieldTexture);
+        glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, GridW + 1, GridH + 1, GL_RED, GL_FLOAT, OpenGL->Field);
+
+        vertex Verts[6];
+
+        Verts[0].P = V2(-1, -1);
+        Verts[0].UV = V2(0, 0);
+
+        Verts[1].P = V2(1, -1);
+        Verts[1].UV = V2(1, 0);
+
+        Verts[2].P = V2(1, 1);
+        Verts[2].UV = V2(1, 1);
+
+        Verts[3].P = V2(1, 1);
+        Verts[3].UV = V2(1, 1);
+
+        Verts[4].P = V2(-1, 1);
+        Verts[4].UV = V2(0, 1);
+
+        Verts[5].P = V2(-1, -1);
+        Verts[5].UV = V2(0, 0);
+
+        glBindBuffer(GL_ARRAY_BUFFER, OpenGL->VBO);
+        glBufferData(GL_ARRAY_BUFFER, sizeof(Verts), Verts, GL_STREAM_DRAW);
+
+        glUseProgram(OpenGL->TextureProgram);
+        glDrawArrays(GL_TRIANGLES, 0, ArrayCount(Verts));
     }
-
-    glBindBuffer(GL_ARRAY_BUFFER, OpenGL->VBO);
-    glBufferData(GL_ARRAY_BUFFER, OpenGL->VertexSize * sizeof(vertex), OpenGL->Vertices, GL_STREAM_DRAW);
-
-    glUseProgram(OpenGL->ShaderProgram);
-    glDrawArrays(GL_LINES, 0, OpenGL->VertexSize);
 }
 
 static void
-Render(sim *Sim, opengl *OpenGL, float Width, float Height)
+Render(sim *Sim, opengl *OpenGL, float Width, float Height, bool RenderContour)
 {
     glViewport(0, 0, Width, Height);
 
@@ -810,9 +888,7 @@ Render(sim *Sim, opengl *OpenGL, float Width, float Height)
     GlUnitsPerMeter.x = GlW / WorldW;
     GlUnitsPerMeter.y = GlH / WorldH;
 
-    TIMER_START(Timer_RenderMarchingSquares);
-    RenderMarchingSquares(OpenGL, Sim);
-    TIMER_END(Timer_RenderMarchingSquares);
+    RenderMarchingSquares(OpenGL, Sim, RenderContour);
 
     OpenGL->VertexSize = 0;
 
@@ -823,8 +899,12 @@ Render(sim *Sim, opengl *OpenGL, float Width, float Height)
     PushText(OpenGL, V2(0, PenY), Buffer);
     PenY += OpenGL->Font.PixelHeight;
 
-    sprintf(Buffer, "RenderMarchingSquares: %.1f ms", TIMER_GET_MS(Timer_RenderMarchingSquares));
+    sprintf(Buffer, "RenderFieldEval: %.1f ms", TIMER_GET_MS(Timer_RenderFieldEval));
     PushText(OpenGL, V2(0, PenY), Buffer);
+    PenY += OpenGL->Font.PixelHeight;
+    PenY += OpenGL->Font.PixelHeight;
+
+    PushText(OpenGL, V2(0, PenY), "Press F to switch rendering mode");
     PenY += OpenGL->Font.PixelHeight;
 
     glBindBuffer(GL_ARRAY_BUFFER, OpenGL->VBO);
