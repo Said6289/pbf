@@ -409,6 +409,8 @@ PushQuad(opengl *OpenGL, v2 MinCorner, v2 MaxCorner, v2 MinUV, v2 MaxUV)
 static void
 PushText(opengl *OpenGL, v2 P, char *Text)
 {
+    if (!OpenGL->Font.Chars) return;
+
     for (char *C = Text; *C; ++C) {
         stbtt_aligned_quad Quad;
         stbtt_GetBakedQuad(
