@@ -8,33 +8,32 @@
 #define REST_DENSITY 1000.0f
 #define RELAXATION 300.0f
 
-#define H (PARTICLE_RADIUS * 12.0f)
+#define H (PARTICLE_RADIUS * 16.0f)
 #define H2 (H*H)
 #define H6 (H*H*H*H*H*H)
 #define H9 (H*H*H*H*H*H*H*H*H)
 
-#define MAX_NEIGHBORS 4096
+#define MAX_NEIGHBORS 128
 
 #define WORLD_WIDTH 10.0f
 #define WORLD_HEIGHT 10.0f
 
 struct hash_grid_cell {
-    int x, y;
-    int *Data;
+    int x;
+    int y;
+    int Index;
+    int ParticleIndex;
 };
 
 struct hash_grid {
+    v2 WorldP;
+    float CellDim;
+
     int Width;
     int Height;
     int CellCount;
 
-    v2 WorldP;
-    float CellDim;
-
-    int ElementsPerCell;
-
-    int *ElementCounts;
-    int *Elements;
+    int *CellStart;
 };
 
 struct particle {
@@ -44,6 +43,7 @@ struct particle {
     float Density;
     float Pressure;
 
+    int CellIndex;
     int NeighborCount;
     int *Neighbors;
 };

@@ -42,14 +42,12 @@ struct opengl {
     int GridW;
     int GridH;
     float *Field;
-    float *HashGridData;
 
     font_info Font;
 };
 
 struct field_eval_work {
     hash_grid HashGrid;
-    float *HashGridData;
     float CellW;
     float CellH;
     int GridW;

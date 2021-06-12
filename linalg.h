@@ -1,3 +1,11 @@
+static float
+Clamp(float Low, float Value, float High)
+{
+    if (Value < Low) return Low;
+    if (Value > High) return High;
+    return Value;
+}
+
 struct v2 {
     float x;
     float y;

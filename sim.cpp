@@ -1,26 +1,21 @@
-static void
-Clear(hash_grid Grid)
-{
-    for (int i = 0; i < Grid.CellCount; ++i) {
-        Grid.ElementCounts[i] = 0;
-    }
-}
-
 static int
-GetCellIndex(hash_grid Grid, hash_grid_cell Cell)
+GetCellIndex(hash_grid Grid, int x, int y)
 {
-    int Index = Cell.y * Grid.Width + Cell.x;
+    int Index = y * Grid.Width + x;
     return Index;
 }
 
 static hash_grid_cell
-GetCell(hash_grid Grid, int X, int Y)
+GetCell(hash_grid Grid, int x, int y)
 {
+    int CellIndex = GetCellIndex(Grid, x, y);
+
     hash_grid_cell Cell = {};
-    Cell.x = X;
-    Cell.y = Y;
-    int CellIndex = GetCellIndex(Grid, Cell);
-    Cell.Data = &Grid.Elements[CellIndex * Grid.ElementsPerCell];
+    Cell.x = x;
+    Cell.y = y;
+    Cell.Index = CellIndex;
+    Cell.ParticleIndex = Grid.CellStart[CellIndex];
+
     return Cell;
 }
 
@@ -29,42 +24,29 @@ GetCell(hash_grid Grid, v2 P)
 {
     P = P - Grid.WorldP;
 
-    int X = (int)(P.x / Grid.CellDim);
-    int Y = (int)(P.y / Grid.CellDim);
+    int x = (int)(P.x / Grid.CellDim);
+    int y = (int)(P.y / Grid.CellDim);
 
-    if (X < 0) X = 0;
-    else if (X > Grid.Width - 1) X = Grid.Width - 1;
+    x = Clamp(0, x, Grid.Width - 1);
+    y = Clamp(0, y, Grid.Height - 1);
 
-    if (Y < 0) Y = 0;
-    else if (Y > Grid.Height - 1) Y = Grid.Height - 1;
-
-    hash_grid_cell Cell = GetCell(Grid, X, Y);
+    hash_grid_cell Cell = GetCell(Grid, x, y);
     return Cell;
 }
 
 static bool
-IsWithinBounds(hash_grid Grid, int X, int Y)
+IsWithinBounds(hash_grid Grid, int x, int y)
 {
-   bool IsInvalid = X < 0 || X >= Grid.Width || Y < 0 || Y >= Grid.Height;
+   bool IsInvalid = x < 0 || y >= Grid.Width || y < 0 || y >= Grid.Height;
    return !IsInvalid;
 }
 
 static int
-GetElementCount(hash_grid Grid, hash_grid_cell Cell)
+ParticleCellIndexCompare(const void *A, const void *B)
 {
-    int CellIndex = GetCellIndex(Grid, Cell);
-    int Count = Grid.ElementCounts[CellIndex];
-    return Count;
-}
-
-static void
-AddElement(hash_grid Grid, v2 P, int Element)
-{
-    hash_grid_cell Cell = GetCell(Grid, P);
-    int CellIndex = GetCellIndex(Grid, Cell);
-    if (Grid.ElementCounts[CellIndex] < Grid.ElementsPerCell) {
-        Cell.Data[Grid.ElementCounts[CellIndex]++] = Element;
-    }
+    particle *ParticleA = (particle *)A;
+    particle *ParticleB = (particle *)B;
+    return ParticleA->CellIndex - ParticleB->CellIndex;
 }
 
 struct lambda_work {
@@ -130,10 +112,9 @@ Simulate(sim *Sim)
     int ParticleCount = Sim->ParticleCount;
     particle *Particles = Sim->Particles;
 
-    Clear(HashGrid);
     for (int ParticleIndex = 0; ParticleIndex < ParticleCount; ++ParticleIndex) {
         particle *P = &Particles[ParticleIndex];
-        AddElement(HashGrid, P->P, ParticleIndex);
+        P->CellIndex = GetCell(HashGrid, P->P).Index;
 
         P->P0 = P->P;
         P->V += Sim->Gravity * dt;
@@ -156,6 +137,19 @@ Simulate(sim *Sim)
         P->P += P->V * dt;
     }
 
+    // TODO(said): Implement my own sort, since the loop
+    // can probably be merged with the sort?
+    qsort(Particles, ParticleCount, sizeof(particle), ParticleCellIndexCompare);
+    int CurrentCellIndex = -1;
+    for (int ParticleIndex = 0; ParticleIndex < ParticleCount; ++ParticleIndex) {
+        particle Particle = Particles[ParticleIndex];
+
+        if (Particle.CellIndex != CurrentCellIndex) {
+            CurrentCellIndex = Particle.CellIndex;
+            HashGrid.CellStart[CurrentCellIndex] = ParticleIndex;
+        }
+    }
+
     for (int ParticleIndex = 0; ParticleIndex < ParticleCount; ++ParticleIndex) {
         particle *Particle = &Particles[ParticleIndex];
         Particle->NeighborCount = 0;
@@ -169,14 +163,12 @@ Simulate(sim *Sim)
                     continue;
                 }
 
-                hash_grid_cell Cell = GetCell(HashGrid, CellX, CellY);
-                int ElementCount = GetElementCount(HashGrid, Cell);
+                int CellIndex = GetCellIndex(HashGrid, CellX, CellY);
 
-                for (int ElementIndex = 0;
-                     ElementIndex < ElementCount;
-                     ++ElementIndex)
+                for (int OtherIndex = HashGrid.CellStart[CellIndex];
+                     CellIndex == Particles[OtherIndex].CellIndex;
+                     ++OtherIndex)
                 {
-                    int OtherIndex = Cell.Data[ElementIndex];
                     particle Other = Particles[OtherIndex];
 
                     if (LengthSq(Other.P - Particle->P) < H2) {
@@ -312,14 +304,14 @@ InitSim(sim *Sim)
     printf("Simulating %d particles...\n", Sim->ParticleCount);
 
     hash_grid Grid = {};
+
     Grid.WorldP = V2(WORLD_WIDTH, WORLD_HEIGHT) * -0.5f;
     Grid.CellDim = H;
+
     Grid.Width = WORLD_WIDTH / Grid.CellDim;
     Grid.Height = WORLD_HEIGHT / Grid.CellDim;
     Grid.CellCount = Grid.Width * Grid.Height;
-    Grid.ElementsPerCell = 64;
-    Grid.Elements = (int *)calloc(Grid.CellCount * Grid.ElementsPerCell, sizeof(int));
-    Grid.ElementCounts = (int *)calloc(Grid.CellCount, sizeof(int));
+    Grid.CellStart = (int *)calloc(Grid.CellCount, sizeof(int));
 
     Sim->HashGrid = Grid;
 
