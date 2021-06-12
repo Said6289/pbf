@@ -1,7 +1,21 @@
 static int
 GetCellIndex(hash_grid Grid, int x, int y)
 {
-    int Index = y * Grid.Width + x;
+    int Index = x + y * Grid.Width;
+    return Index;
+}
+
+static int
+GetCellIndex(hash_grid Grid, v2 P)
+{
+    P = P - Grid.WorldP;
+
+    int x = Clamp(0, (int)(P.x / Grid.CellDim), Grid.Width - 1);
+    int y = Clamp(0, (int)(P.y / Grid.CellDim), Grid.Height - 1);
+
+    int Index = x + y * Grid.Width;
+    assert(Index >= 0 && Index < Grid.CellCount);
+
     return Index;
 }
 
@@ -24,11 +38,8 @@ GetCell(hash_grid Grid, v2 P)
 {
     P = P - Grid.WorldP;
 
-    int x = (int)(P.x / Grid.CellDim);
-    int y = (int)(P.y / Grid.CellDim);
-
-    x = Clamp(0, x, Grid.Width - 1);
-    y = Clamp(0, y, Grid.Height - 1);
+    int x = Clamp(0, (int)(P.x / Grid.CellDim), Grid.Width - 1);
+    int y = Clamp(0, (int)(P.y / Grid.CellDim), Grid.Height - 1);
 
     hash_grid_cell Cell = GetCell(Grid, x, y);
     return Cell;
@@ -37,7 +48,7 @@ GetCell(hash_grid Grid, v2 P)
 static bool
 IsWithinBounds(hash_grid Grid, int x, int y)
 {
-   bool IsInvalid = x < 0 || y >= Grid.Width || y < 0 || y >= Grid.Height;
+   bool IsInvalid = x < 0 || x >= Grid.Width || y < 0 || y >= Grid.Height;
    return !IsInvalid;
 }
 
@@ -47,6 +58,28 @@ ParticleCellIndexCompare(const void *A, const void *B)
     particle *ParticleA = (particle *)A;
     particle *ParticleB = (particle *)B;
     return ParticleA->CellIndex - ParticleB->CellIndex;
+}
+
+static void
+ConstructSortedGrid(int ParticleCount, particle *Particles, hash_grid HashGrid)
+{
+    // TODO(said): Implement my own sort, since the loop
+    // can probably be merged with the sort?
+    qsort(Particles, ParticleCount, sizeof(particle), ParticleCellIndexCompare);
+
+    for (int i = 0; i < HashGrid.CellCount; ++i) {
+        HashGrid.CellStart[i] = -1;
+    }
+
+    int CurrentCellIndex = -1;
+    for (int ParticleIndex = 0; ParticleIndex < ParticleCount; ++ParticleIndex) {
+        particle Particle = Particles[ParticleIndex];
+
+        if (Particle.CellIndex != CurrentCellIndex) {
+            CurrentCellIndex = Particle.CellIndex;
+            HashGrid.CellStart[CurrentCellIndex] = ParticleIndex;
+        }
+    }
 }
 
 struct lambda_work {
@@ -114,13 +147,13 @@ Simulate(sim *Sim)
 
     for (int ParticleIndex = 0; ParticleIndex < ParticleCount; ++ParticleIndex) {
         particle *P = &Particles[ParticleIndex];
-        P->CellIndex = GetCell(HashGrid, P->P).Index;
 
         P->P0 = P->P;
-        P->V += Sim->Gravity * dt;
+
         if (Sim->Pulling) {
             P->V += (Sim->PullPoint - P->P) * 3.0f * dt;
         }
+        P->V += Sim->Gravity * dt;
 
         { // NOTE(said): Waves
             v2 WaveP = V2(fmodf(2.0f * Sim->Time, WORLD_WIDTH), 0);
@@ -135,25 +168,18 @@ Simulate(sim *Sim)
         }
 
         P->P += P->V * dt;
+
+        P->CellIndex = GetCellIndex(HashGrid, P->P);
     }
 
-    // TODO(said): Implement my own sort, since the loop
-    // can probably be merged with the sort?
-    qsort(Particles, ParticleCount, sizeof(particle), ParticleCellIndexCompare);
-    int CurrentCellIndex = -1;
-    for (int ParticleIndex = 0; ParticleIndex < ParticleCount; ++ParticleIndex) {
-        particle Particle = Particles[ParticleIndex];
+    ConstructSortedGrid(ParticleCount, Particles, HashGrid);
 
-        if (Particle.CellIndex != CurrentCellIndex) {
-            CurrentCellIndex = Particle.CellIndex;
-            HashGrid.CellStart[CurrentCellIndex] = ParticleIndex;
-        }
-    }
-
+#define BRUTE_FORCE 0
     for (int ParticleIndex = 0; ParticleIndex < ParticleCount; ++ParticleIndex) {
         particle *Particle = &Particles[ParticleIndex];
         Particle->NeighborCount = 0;
 
+#if !BRUTE_FORCE
         hash_grid_cell CenterCell = GetCell(HashGrid, Particle->P);
         for (int Row = 0; Row < 3; ++Row) {
             for (int Col = 0; Col < 3; ++Col) {
@@ -166,7 +192,7 @@ Simulate(sim *Sim)
                 int CellIndex = GetCellIndex(HashGrid, CellX, CellY);
 
                 for (int OtherIndex = HashGrid.CellStart[CellIndex];
-                     CellIndex == Particles[OtherIndex].CellIndex;
+                     OtherIndex != -1 && CellIndex == Particles[OtherIndex].CellIndex;
                      ++OtherIndex)
                 {
                     particle Other = Particles[OtherIndex];
@@ -178,7 +204,19 @@ Simulate(sim *Sim)
                 }
             }
         }
+#endif
+
+#if BRUTE_FORCE 
+        for (int OtherIndex = 0; OtherIndex < ParticleCount; ++OtherIndex) {
+            if (LengthSq(Particles[OtherIndex].P - Particle->P) < H2) {
+                assert(Particle->NeighborCount < MAX_NEIGHBORS);
+                Particle->Neighbors[Particle->NeighborCount++] = OtherIndex;
+            }
+        }
+#endif
     }
+
+#undef BRUTE_FORCE
 
     work_queue *Queue = &GlobalWorkQueue;
     ResetQueue(Queue);

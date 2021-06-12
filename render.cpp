@@ -59,7 +59,7 @@ static const char *TextFragShaderCode = R"glsl(
     void main()
     {
         vec4 Alpha = texture(Font, UV);
-        FragColor = vec4(0.0, 1.0, 1.0, Alpha.r);
+        FragColor = vec4(1.0, 1.0, 1.0, Alpha.r);
     }
 )glsl";
 
@@ -462,7 +462,7 @@ EvaluateFieldTile(void *Data)
             {
                 v2 P = -0.5f * V2(WorldW, WorldH) + V2(XIndex, YIndex) * V2(CellW, CellH);
 
-                v2 CenterCell = (P + 0.5f * V2(WorldW, WorldH)) * (1.0f / H);
+                hash_grid_cell CenterCell = GetCell(HashGrid, P);
 
                 for (int Row = 0; Row < 3; ++Row) {
                     for (int Col = 0; Col < 3; ++Col) {
@@ -475,7 +475,7 @@ EvaluateFieldTile(void *Data)
                         hash_grid_cell Cell = GetCell(HashGrid, CellX, CellY);
 
                         for (int ParticleIndex = Cell.ParticleIndex;
-                             Cell.Index == Particles[ParticleIndex].CellIndex;
+                             ParticleIndex != -1 && Cell.Index == Particles[ParticleIndex].CellIndex;
                              ++ParticleIndex)
                         {
                             particle Particle = Particles[ParticleIndex];
@@ -596,19 +596,10 @@ RenderMarchingSquares(opengl *OpenGL, sim *Sim, bool RenderContour)
 
     for (int ParticleIndex = 0; ParticleIndex < ParticleCount; ++ParticleIndex) {
         particle Particle = Particles[ParticleIndex];
-        Particle.CellIndex = GetCell(HashGrid, Particle.P).Index;
+        Particle.CellIndex = GetCellIndex(HashGrid, Particle.P);
     }
-    // TODO(said): Implement my own sort
-    qsort(Particles, ParticleCount, sizeof(particle), ParticleCellIndexCompare);
-    int CurrentCellIndex = -1;
-    for (int ParticleIndex = 0; ParticleIndex < ParticleCount; ++ParticleIndex) {
-        particle Particle = Particles[ParticleIndex];
 
-        if (Particle.CellIndex != CurrentCellIndex) {
-            CurrentCellIndex = Particle.CellIndex;
-            HashGrid.CellStart[CurrentCellIndex] = ParticleIndex;
-        }
-    }
+    ConstructSortedGrid(ParticleCount, Particles, HashGrid);
 
     float WorldW = WORLD_WIDTH;
     float WorldH = WORLD_HEIGHT;
@@ -874,6 +865,7 @@ Render(sim *Sim, opengl *OpenGL, float Width, float Height, bool RenderContour)
     sprintf(Buffer, "RenderFieldEval: %.1f ms", TIMER_GET_MS(Timer_RenderFieldEval));
     PushText(OpenGL, V2(0, PenY), Buffer);
     PenY += OpenGL->Font.PixelHeight;
+
     PenY += OpenGL->Font.PixelHeight;
 
     PushText(OpenGL, V2(0, PenY), "Press F to switch rendering mode");
