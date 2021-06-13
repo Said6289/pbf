@@ -1,4 +1,6 @@
 #include <assert.h>
+#include <stdio.h>
+#include <stdlib.h>
 
 #include <SDL.h>
 #include <SDL_opengl.h>
@@ -40,6 +42,7 @@ typedef void (APIENTRY *gl_bind_image_texture)(GLuint, GLuint, GLint, GLboolean,
 typedef void (APIENTRY *gl_tex_storage_2d)(GLenum, GLsizei, GLenum, GLsizei, GLsizei);
 typedef void (APIENTRY *gl_tex_storage_3d)(GLenum, GLsizei, GLenum, GLsizei, GLsizei, GLsizei);
 typedef void (APIENTRY *gl_memory_barrier)(GLbitfield);
+typedef void (APIENTRY *gl_active_texture)(GLenum);
 
 static gl_gen_buffers glGenBuffers = 0;
 static gl_bind_buffer glBindBuffer = 0;
@@ -73,6 +76,7 @@ static gl_bind_image_texture glBindImageTexture = 0;
 static gl_tex_storage_2d glTexStorage2D = 0;
 static gl_tex_storage_3d glTexStorage3D = 0;
 static gl_memory_barrier glMemoryBarrier = 0;
+static gl_active_texture glActiveTexture = 0;
 
 static void
 LoadOpenGLFunctions()
@@ -109,6 +113,7 @@ LoadOpenGLFunctions()
     glTexStorage2D = (gl_tex_storage_2d)SDL_GL_GetProcAddress("glTexStorage2D");
     glTexStorage3D = (gl_tex_storage_3d)SDL_GL_GetProcAddress("glTexStorage3D");
     glMemoryBarrier = (gl_memory_barrier)SDL_GL_GetProcAddress("glMemoryBarrier");
+    glActiveTexture = (gl_active_texture)SDL_GL_GetProcAddress("glActiveTexture");
 }
 
 enum timer_names {
@@ -128,12 +133,13 @@ uint64_t GlobalPerformaceFreq;
 #include "sim.h"
 #include "render.h"
 
-#include "posix_work_queue.cpp"
+//#include "posix_work_queue.cpp"
+#include "sdl2_work_queue.cpp"
 #include "sim.cpp"
 #include "render.cpp"
 
 int
-main(void)
+main(int argc, char **argv)
 {
     SDL_Init(SDL_INIT_VIDEO);
 
@@ -207,4 +213,6 @@ main(void)
     }
 
     SDL_Quit();
+
+    return 0;
 }
