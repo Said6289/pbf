@@ -9,14 +9,16 @@ This is still very much a work in progress, as it doesn't fully implement the al
 ## Building
 
 The code depends on [SDL2](https://www.libsdl.org/) and OpenGL. The Makefile
-in this repo has only been tested on Linux. The threading uses pthreads right
-now, but the SDL threading abstraction could be used in the future
-to be able to build on Windows.
+in this repo has only been tested on Linux.
 
 Building with the Makefile should be pretty straightforward:
 ```bash
 $ make
 ```
+
+To build on Windows run `build.bat` from a terminal that can
+run `cl.exe`. The required SDL2 files for building are included in
+`third_party/SDL2`.
 
 ## User Interaction
 
