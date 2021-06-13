@@ -82,17 +82,18 @@ ConstructSortedGrid(int ParticleCount, particle *Particles, hash_grid HashGrid)
     }
 }
 
-struct lambda_work {
+struct sim_work {
     int ParticleIndex;
     int ParticleEnd;
 
     particle *Particles;
+    hash_grid HashGrid;
 };
 
 static void
 ComputeLambda(void *Data)
 {
-    lambda_work *Work = (lambda_work *)Data;
+    sim_work *Work = (sim_work *)Data;
 
     int ParticleIndex = Work->ParticleIndex;
     int ParticleEnd = Work->ParticleEnd;
@@ -139,114 +140,12 @@ ComputeLambda(void *Data)
 }
 
 static void
-Simulate(sim *Sim)
+ComputeDeltaP(void *Data)
 {
-    hash_grid HashGrid = Sim->HashGrid;
-    int ParticleCount = Sim->ParticleCount;
-    particle *Particles = Sim->Particles;
+    sim_work *Work = (sim_work *)Data;
 
-    for (int ParticleIndex = 0; ParticleIndex < ParticleCount; ++ParticleIndex) {
-        particle *P = &Particles[ParticleIndex];
-
-        P->P0 = P->P;
-
-        if (Sim->Pulling) {
-            P->V += (Sim->PullPoint - P->P) * 3.0f * dt;
-        }
-        P->V += Sim->Gravity * dt;
-
-        { // NOTE(said): Waves
-            v2 WaveP = V2(fmodf(2.0f * Sim->Time, WORLD_WIDTH), 0);
-            WaveP.x -= WORLD_WIDTH * 0.5f;
-
-            float D = P->P.x - WaveP.x;
-            D /= 0.125f * WORLD_WIDTH;
-
-            if (D > 0 && D < 1) {
-                P->V.x += 10.0f * dt;
-            }
-        }
-
-        P->P += P->V * dt;
-
-        P->CellIndex = GetCellIndex(HashGrid, P->P);
-    }
-
-    ConstructSortedGrid(ParticleCount, Particles, HashGrid);
-
-#define BRUTE_FORCE 0
-    for (int ParticleIndex = 0; ParticleIndex < ParticleCount; ++ParticleIndex) {
-        particle *Particle = &Particles[ParticleIndex];
-        Particle->NeighborCount = 0;
-
-#if !BRUTE_FORCE
-        hash_grid_cell CenterCell = GetCell(HashGrid, Particle->P);
-        for (int Row = 0; Row < 3; ++Row) {
-            for (int Col = 0; Col < 3; ++Col) {
-                int CellX = CenterCell.x - 1 + Col;
-                int CellY = CenterCell.y - 1 + Row;
-                if (!IsWithinBounds(HashGrid, CellX, CellY)) {
-                    continue;
-                }
-
-                int CellIndex = GetCellIndex(HashGrid, CellX, CellY);
-
-                for (int OtherIndex = HashGrid.CellStart[CellIndex];
-                     OtherIndex != -1 && CellIndex == Particles[OtherIndex].CellIndex;
-                     ++OtherIndex)
-                {
-                    particle Other = Particles[OtherIndex];
-
-                    if (LengthSq(Other.P - Particle->P) < H2) {
-                        if (Particle->NeighborCount < MAX_NEIGHBORS) {
-                            Particle->Neighbors[Particle->NeighborCount++] = OtherIndex;
-                        }
-                    }
-                }
-            }
-        }
-#endif
-
-#if BRUTE_FORCE
-        for (int OtherIndex = 0; OtherIndex < ParticleCount; ++OtherIndex) {
-            if (LengthSq(Particles[OtherIndex].P - Particle->P) < H2) {
-                if (Particle->NeighborCount < MAX_NEIGHBORS) {
-                    Particle->Neighbors[Particle->NeighborCount++] = OtherIndex;
-                }
-            }
-        }
-#endif
-    }
-
-#undef BRUTE_FORCE
-
-    work_queue *Queue = &GlobalWorkQueue;
-    ResetQueue(Queue);
-
-    lambda_work Works[512];
-    int WorkCount = 0;
-
-    int TileSize = 64;
-    int TileCount = (ParticleCount + TileSize - 1) / TileSize;
-
-    for (int i = 0; i < TileCount; ++i) {
-        assert(WorkCount < 512);
-        lambda_work *Work = Works + WorkCount++;
-
-        Work->ParticleIndex = i * TileSize;
-        Work->ParticleEnd = Work->ParticleIndex + TileSize;
-        if (Work->ParticleEnd > ParticleCount) {
-            Work->ParticleEnd = ParticleCount;
-        }
-        Work->Particles = Particles;
-
-        AddEntry(Queue, Work, ComputeLambda);
-    }
-
-    FinishWork(Queue);
-
-    for (int i = 0; i < ParticleCount; ++i) {
-        particle *P = Particles + i;
+    for (int i = Work->ParticleIndex; i < Work->ParticleEnd; ++i) {
+        particle *P = Work->Particles + i;
 
         v2 DeltaP = {};
 
@@ -254,7 +153,7 @@ Simulate(sim *Sim)
             int j = P->Neighbors[ni];
             if (i == j) continue;
 
-            particle *N = Particles + j;
+            particle *N = Work->Particles + j;
 
             v2 R = P->P - N->P;
             float RLen = Length(R);
@@ -307,6 +206,139 @@ Simulate(sim *Sim)
             P->V.y = -P->V.y * Elasticity;
         }
     }
+}
+
+static void
+GatherNeighbors(void *Data)
+{
+    sim_work *Work = (sim_work *)Data;
+
+    int ParticleIndex = Work->ParticleIndex;
+    int ParticleEnd = Work->ParticleEnd;
+    particle *Particles = Work->Particles;
+    hash_grid HashGrid = Work->HashGrid;
+
+#define BRUTE_FORCE 0
+    for (int i = ParticleIndex; i < ParticleEnd; ++i) {
+        particle *Particle = &Particles[i];
+        Particle->NeighborCount = 0;
+
+#if !BRUTE_FORCE
+        hash_grid_cell CenterCell = GetCell(HashGrid, Particle->P);
+        for (int Row = 0; Row < 3; ++Row) {
+            for (int Col = 0; Col < 3; ++Col) {
+                int CellX = CenterCell.x - 1 + Col;
+                int CellY = CenterCell.y - 1 + Row;
+                if (!IsWithinBounds(HashGrid, CellX, CellY)) {
+                    continue;
+                }
+
+                int CellIndex = GetCellIndex(HashGrid, CellX, CellY);
+
+                for (int OtherIndex = HashGrid.CellStart[CellIndex];
+                     OtherIndex != -1 && CellIndex == Particles[OtherIndex].CellIndex;
+                     ++OtherIndex)
+                {
+                    particle Other = Particles[OtherIndex];
+
+                    if (LengthSq(Other.P - Particle->P) < H2) {
+                        if (Particle->NeighborCount < MAX_NEIGHBORS) {
+                            Particle->Neighbors[Particle->NeighborCount++] = OtherIndex;
+                        }
+                    }
+                }
+            }
+        }
+#endif
+
+#if BRUTE_FORCE
+        for (int OtherIndex = 0; OtherIndex < ParticleCount; ++OtherIndex) {
+            if (LengthSq(Particles[OtherIndex].P - Particle->P) < H2) {
+                if (Particle->NeighborCount < MAX_NEIGHBORS) {
+                    Particle->Neighbors[Particle->NeighborCount++] = OtherIndex;
+                }
+            }
+        }
+#endif
+    }
+}
+
+static void
+Simulate(sim *Sim)
+{
+    hash_grid HashGrid = Sim->HashGrid;
+    int ParticleCount = Sim->ParticleCount;
+    particle *Particles = Sim->Particles;
+
+    for (int ParticleIndex = 0; ParticleIndex < ParticleCount; ++ParticleIndex) {
+        particle *P = &Particles[ParticleIndex];
+
+        P->P0 = P->P;
+
+        if (Sim->Pulling) {
+            P->V += (Sim->PullPoint - P->P) * 3.0f * dt;
+        }
+        P->V += Sim->Gravity * dt;
+
+        { // NOTE(said): Waves
+            v2 WaveP = V2(fmodf(2.0f * Sim->Time, WORLD_WIDTH), 0);
+            WaveP.x -= WORLD_WIDTH * 0.5f;
+
+            float D = P->P.x - WaveP.x;
+            D /= 0.125f * WORLD_WIDTH;
+
+            if (D > 0 && D < 1) {
+                P->V.x += 10.0f * dt;
+            }
+        }
+
+        P->P += P->V * dt;
+
+        P->CellIndex = GetCellIndex(HashGrid, P->P);
+    }
+
+    ConstructSortedGrid(ParticleCount, Particles, HashGrid);
+
+    work_queue *Queue = &GlobalWorkQueue;
+    ResetQueue(Queue);
+
+    sim_work Works[512];
+    int WorkCount = 0;
+
+    int TileSize = 64;
+    int TileCount = (ParticleCount + TileSize - 1) / TileSize;
+
+    for (int i = 0; i < TileCount; ++i) {
+        assert(WorkCount < 512);
+        sim_work *Work = Works + WorkCount++;
+
+        Work->ParticleIndex = i * TileSize;
+        Work->ParticleEnd = Work->ParticleIndex + TileSize;
+        if (Work->ParticleEnd > ParticleCount) {
+            Work->ParticleEnd = ParticleCount;
+        }
+        Work->Particles = Particles;
+        Work->HashGrid = HashGrid;
+
+        AddEntry(Queue, Work, GatherNeighbors);
+    }
+    FinishWork(Queue);
+
+    WorkCount = 0;
+    for (int i = 0; i < TileCount; ++i) {
+        assert(WorkCount < 512);
+        sim_work *Work = Works + WorkCount++;
+        AddEntry(Queue, Work, ComputeLambda);
+    }
+    FinishWork(Queue);
+
+    WorkCount = 0;
+    for (int i = 0; i < TileCount; ++i) {
+        assert(WorkCount < 512);
+        sim_work *Work = Works + WorkCount++;
+        AddEntry(Queue, Work, ComputeDeltaP);
+    }
+    FinishWork(Queue);
 
     Sim->Time += dt;
 }

@@ -858,6 +858,10 @@ Render(sim *Sim, opengl *OpenGL, float Width, float Height, bool RenderContour)
     char Buffer[64];
     float PenY = 0;
 
+    sprintf(Buffer, "ParticleCount: %d", Sim->ParticleCount);
+    PushText(OpenGL, V2(0, PenY), Buffer);
+    PenY += OpenGL->Font.PixelHeight;
+
     sprintf(Buffer, "Sim: %.1f ms", TIMER_GET_MS(Timer_Sim));
     PushText(OpenGL, V2(0, PenY), Buffer);
     PenY += OpenGL->Font.PixelHeight;

@@ -2,7 +2,7 @@
 
 #define PARTICLE_RADIUS 0.0125f
 #define PARTICLE_MASS 1.0f
-#define PARTICLES_PER_AXIS 75
+#define PARTICLES_PER_AXIS 90
 #define dt 0.008f
 
 #define REST_DENSITY 1000.0f
