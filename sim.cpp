@@ -198,19 +198,21 @@ Simulate(sim *Sim)
                     particle Other = Particles[OtherIndex];
 
                     if (LengthSq(Other.P - Particle->P) < H2) {
-                        assert(Particle->NeighborCount < MAX_NEIGHBORS);
-                        Particle->Neighbors[Particle->NeighborCount++] = OtherIndex;
+                        if (Particle->NeighborCount < MAX_NEIGHBORS) {
+                            Particle->Neighbors[Particle->NeighborCount++] = OtherIndex;
+                        }
                     }
                 }
             }
         }
 #endif
 
-#if BRUTE_FORCE 
+#if BRUTE_FORCE
         for (int OtherIndex = 0; OtherIndex < ParticleCount; ++OtherIndex) {
             if (LengthSq(Particles[OtherIndex].P - Particle->P) < H2) {
-                assert(Particle->NeighborCount < MAX_NEIGHBORS);
-                Particle->Neighbors[Particle->NeighborCount++] = OtherIndex;
+                if (Particle->NeighborCount < MAX_NEIGHBORS) {
+                    Particle->Neighbors[Particle->NeighborCount++] = OtherIndex;
+                }
             }
         }
 #endif
