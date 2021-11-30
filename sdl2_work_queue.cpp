@@ -6,6 +6,7 @@ struct work_queue_entry {
 struct work_queue {
     work_queue_entry *Works;
     int Size;
+    int Capacity;
     volatile int Index;
     volatile int DoneCount;
 
@@ -63,8 +64,9 @@ InitQueue(work_queue *Queue)
 {
     Queue->Mutex = SDL_CreateMutex();
     Queue->Cond = SDL_CreateCond();
-    Queue->Works = (work_queue_entry *)malloc(512 * sizeof(work_queue_entry));
     Queue->Size = 0;
+    Queue->Capacity = 512;
+    Queue->Works = (work_queue_entry *)malloc(Queue->Capacity * sizeof(work_queue_entry));
     Queue->DoneCount = 0;
     Queue->Index = 0;
 
@@ -89,7 +91,10 @@ ResetQueue(work_queue *Queue)
 static void
 AddEntry(work_queue *Queue, void *Work, work_queue_proc Proc)
 {
-    assert(Queue->Size < 512);
+    if (Queue->Size >= Queue->Capacity) {
+		Queue->Capacity = Queue->Capacity * 3 / 2;
+		Queue->Works = (work_queue_entry *)realloc(Queue->Works, Queue->Capacity * sizeof(work_queue_entry));
+	}
     work_queue_entry *Entry = Queue->Works + Queue->Size++;
     Entry->Data = Work;
     Entry->Proc = Proc;

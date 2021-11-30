@@ -1,14 +1,14 @@
 #define MAX_THREAD_COUNT 64
 
 #define PARTICLE_RADIUS 0.0125f
-#define PARTICLE_MASS 1.0f
-#define PARTICLES_PER_AXIS 75
+#define PARTICLE_MASS 0.25f
+#define PARTICLES_PER_AXIS 200
 #define dt 0.008f
 
 #define REST_DENSITY 1000.0f
 #define RELAXATION 300.0f
 
-#define H (PARTICLE_RADIUS * 16.0f)
+#define H 0.15f
 #define H2 (H*H)
 #define H6 (H*H*H*H*H*H)
 #define H9 (H*H*H*H*H*H*H*H*H)
@@ -44,8 +44,6 @@ struct particle {
     float Pressure;
 
     int CellIndex;
-    int NeighborCount;
-    int *Neighbors;
 };
 
 struct sim {

@@ -17,12 +17,14 @@ struct vertex {
 
 struct opengl {
     GLuint ShaderProgram;
+    GLuint ParticleProgram;
     GLuint ComputeShaderProgram;
     GLuint TextProgram;
     GLuint TextureProgram;
 
     GLuint VAO;
     GLuint VBO;
+    GLuint ParticleVBO;
 
     GLuint Transform;
     GLuint Metaballs;

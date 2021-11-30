@@ -98,6 +98,7 @@ ComputeLambda(void *Data)
     int ParticleIndex = Work->ParticleIndex;
     int ParticleEnd = Work->ParticleEnd;
     particle *Particles = Work->Particles;
+	hash_grid HashGrid = Work->HashGrid;
 
     for (int i = ParticleIndex; i < ParticleEnd; ++i) {
         particle *P = Particles + i;
@@ -106,33 +107,48 @@ ComputeLambda(void *Data)
         float SquaredGradSum = 0;
         v2 GradientOfI = {};
 
-        for (int ni = 0; ni < P->NeighborCount; ++ni) {
-            int j = P->Neighbors[ni];
-            particle *N = Particles + j;
-
-            float R2 = LengthSq(P->P - N->P);
-            if (R2 < H2) {
-                float A = H2 - R2;
-                P->Density += PARTICLE_MASS * (315.0f / (64.0f * (float)M_PI * H9)) * A * A * A;
-            }
-
-            if (i != j) {
-                v2 R = P->P - N->P;
-                float RLen = Length(R);
-
-                if (RLen > 0 && RLen < H) {
-                    float A = H - RLen;
-                    A = (-45.0f / ((float)M_PI * H6)) * A * A;
-                    A /= RLen;
-                    v2 Gradient = A * R;
-
-                    Gradient *= (1.0f / REST_DENSITY);
-
-                    SquaredGradSum += Dot(Gradient, Gradient);
-                    GradientOfI += Gradient;
+		hash_grid_cell CenterCell = GetCell(HashGrid, P->P);
+        for (int Row = 0; Row < 3; ++Row) {
+            for (int Col = 0; Col < 3; ++Col) {
+                int CellX = CenterCell.x - 1 + Col;
+                int CellY = CenterCell.y - 1 + Row;
+                if (!IsWithinBounds(HashGrid, CellX, CellY)) {
+                    continue;
                 }
-            }
-        }
+
+                int CellIndex = GetCellIndex(HashGrid, CellX, CellY);
+                for (int OtherIndex = HashGrid.CellStart[CellIndex];
+                     OtherIndex != -1 && CellIndex == Particles[OtherIndex].CellIndex;
+                     ++OtherIndex)
+                {
+					particle *N = Particles + OtherIndex;
+
+					float R2 = LengthSq(P->P - N->P);
+					if (R2 < H2) {
+
+						float A = H2 - R2;
+						P->Density += PARTICLE_MASS * (315.0f / (64.0f * (float)M_PI * H9)) * A * A * A;
+
+						if (i != OtherIndex) {
+							v2 R = P->P - N->P;
+							float RLen = Length(R);
+
+							if (RLen > 0 && RLen < H) {
+								float A = H - RLen;
+								A = (-45.0f / ((float)M_PI * H6)) * A * A;
+								A /= RLen;
+								v2 Gradient = A * R;
+
+								Gradient *= (1.0f / REST_DENSITY);
+
+								SquaredGradSum += Dot(Gradient, Gradient);
+								GradientOfI += Gradient;
+							}
+						}
+					}
+				}
+			}
+		}
 
         float LambdaDenom = SquaredGradSum + Dot(GradientOfI, GradientOfI) + RELAXATION;
         P->Pressure = -(P->Density / REST_DENSITY - 1) / LambdaDenom;
@@ -143,45 +159,62 @@ static void
 ComputeDeltaP(void *Data)
 {
     sim_work *Work = (sim_work *)Data;
+    particle *Particles = Work->Particles;
+	hash_grid HashGrid = Work->HashGrid;
 
     for (int i = Work->ParticleIndex; i < Work->ParticleEnd; ++i) {
         particle *P = Work->Particles + i;
 
         v2 DeltaP = {};
 
-        for (int ni = 0; ni < P->NeighborCount; ++ni) {
-            int j = P->Neighbors[ni];
-            if (i == j) continue;
-
-            particle *N = Work->Particles + j;
-
-            v2 R = P->P - N->P;
-            float RLen = Length(R);
-            float R2 = LengthSq(R);
-
-            if (RLen > 0 && RLen < H) {
-                float A = H - RLen;
-                A = (-45.0f / ((float)M_PI * H6)) * A * A;
-                A /= RLen;
-                v2 Gradient = A * R;
-
-                const float k = 0.1f;
-                A = H2 - R2;
-                float Scorr = 0;
-                if (A > 0) {
-                    float Numerator = (315.0f / (64.0f * (float)M_PI * H9)) * A * A * A;
-                    A = 0.3f * H;
-                    float Denomerator = (315.0f / (64.0f * (float)M_PI * H9)) * A * A * A;
-                    Scorr = Numerator / Denomerator;
+		hash_grid_cell CenterCell = GetCell(HashGrid, P->P);
+        for (int Row = 0; Row < 3; ++Row) {
+            for (int Col = 0; Col < 3; ++Col) {
+                int CellX = CenterCell.x - 1 + Col;
+                int CellY = CenterCell.y - 1 + Row;
+                if (!IsWithinBounds(HashGrid, CellX, CellY)) {
+                    continue;
                 }
 
-                Scorr *= Scorr;
-                Scorr *= Scorr;
-                Scorr *= -k;
+                int CellIndex = GetCellIndex(HashGrid, CellX, CellY);
+                for (int OtherIndex = HashGrid.CellStart[CellIndex];
+                     OtherIndex != -1 && CellIndex == Particles[OtherIndex].CellIndex;
+                     ++OtherIndex)
+                {
 
-                DeltaP += (N->Pressure + P->Pressure + Scorr) * Gradient;
-            }
-        }
+            		if (i == OtherIndex) continue;
+
+            		particle *N = Work->Particles + OtherIndex;
+
+					v2 R = P->P - N->P;
+					float RLen = Length(R);
+					float R2 = LengthSq(R);
+
+					if (RLen > 0 && RLen < H) {
+						float A = H - RLen;
+						A = (-45.0f / ((float)M_PI * H6)) * A * A;
+						A /= RLen;
+						v2 Gradient = A * R;
+
+						const float k = 0.1f;
+						A = H2 - R2;
+						float Scorr = 0;
+						if (A > 0) {
+							float Numerator = (315.0f / (64.0f * (float)M_PI * H9)) * A * A * A;
+							A = 0.3f * H;
+							float Denomerator = (315.0f / (64.0f * (float)M_PI * H9)) * A * A * A;
+							Scorr = Numerator / Denomerator;
+						}
+
+						Scorr *= Scorr;
+						Scorr *= Scorr;
+						Scorr *= -k;
+
+						DeltaP += (N->Pressure + P->Pressure + Scorr) * Gradient;
+					}
+				}
+			}
+		}
 
         DeltaP *= (1.0f / REST_DENSITY);
         P->P += DeltaP;
@@ -205,61 +238,6 @@ ComputeDeltaP(void *Data)
             P->P.y = WORLD_HEIGHT * 0.5f - PARTICLE_RADIUS;
             P->V.y = -P->V.y * Elasticity;
         }
-    }
-}
-
-static void
-GatherNeighbors(void *Data)
-{
-    sim_work *Work = (sim_work *)Data;
-
-    int ParticleIndex = Work->ParticleIndex;
-    int ParticleEnd = Work->ParticleEnd;
-    particle *Particles = Work->Particles;
-    hash_grid HashGrid = Work->HashGrid;
-
-#define BRUTE_FORCE 0
-    for (int i = ParticleIndex; i < ParticleEnd; ++i) {
-        particle *Particle = &Particles[i];
-        Particle->NeighborCount = 0;
-
-#if !BRUTE_FORCE
-        hash_grid_cell CenterCell = GetCell(HashGrid, Particle->P);
-        for (int Row = 0; Row < 3; ++Row) {
-            for (int Col = 0; Col < 3; ++Col) {
-                int CellX = CenterCell.x - 1 + Col;
-                int CellY = CenterCell.y - 1 + Row;
-                if (!IsWithinBounds(HashGrid, CellX, CellY)) {
-                    continue;
-                }
-
-                int CellIndex = GetCellIndex(HashGrid, CellX, CellY);
-
-                for (int OtherIndex = HashGrid.CellStart[CellIndex];
-                     OtherIndex != -1 && CellIndex == Particles[OtherIndex].CellIndex;
-                     ++OtherIndex)
-                {
-                    particle Other = Particles[OtherIndex];
-
-                    if (LengthSq(Other.P - Particle->P) < H2) {
-                        if (Particle->NeighborCount < MAX_NEIGHBORS) {
-                            Particle->Neighbors[Particle->NeighborCount++] = OtherIndex;
-                        }
-                    }
-                }
-            }
-        }
-#endif
-
-#if BRUTE_FORCE
-        for (int OtherIndex = 0; OtherIndex < ParticleCount; ++OtherIndex) {
-            if (LengthSq(Particles[OtherIndex].P - Particle->P) < H2) {
-                if (Particle->NeighborCount < MAX_NEIGHBORS) {
-                    Particle->Neighbors[Particle->NeighborCount++] = OtherIndex;
-                }
-            }
-        }
-#endif
     }
 }
 
@@ -302,14 +280,14 @@ Simulate(sim *Sim)
     work_queue *Queue = &GlobalWorkQueue;
     ResetQueue(Queue);
 
-    sim_work Works[512];
+    sim_work Works[2048];
     int WorkCount = 0;
 
     int TileSize = 64;
     int TileCount = (ParticleCount + TileSize - 1) / TileSize;
 
     for (int i = 0; i < TileCount; ++i) {
-        assert(WorkCount < 512);
+        assert(WorkCount < 2048);
         sim_work *Work = Works + WorkCount++;
 
         Work->ParticleIndex = i * TileSize;
@@ -320,21 +298,13 @@ Simulate(sim *Sim)
         Work->Particles = Particles;
         Work->HashGrid = HashGrid;
 
-        AddEntry(Queue, Work, GatherNeighbors);
-    }
-    FinishWork(Queue);
-
-    WorkCount = 0;
-    for (int i = 0; i < TileCount; ++i) {
-        assert(WorkCount < 512);
-        sim_work *Work = Works + WorkCount++;
         AddEntry(Queue, Work, ComputeLambda);
     }
     FinishWork(Queue);
 
     WorkCount = 0;
     for (int i = 0; i < TileCount; ++i) {
-        assert(WorkCount < 512);
+        assert(WorkCount < 2048);
         sim_work *Work = Works + WorkCount++;
         AddEntry(Queue, Work, ComputeDeltaP);
     }
@@ -365,9 +335,6 @@ InitSim(sim *Sim)
                 V * ((float)rand() / (float)RAND_MAX - 0.5f),
                 V * ((float)rand() / (float)RAND_MAX - 0.5f));
         Particles[i].V = V2(0);
-
-        Particles[i].Neighbors = (int *)malloc(MAX_NEIGHBORS * sizeof(int));
-        Particles[i].NeighborCount = 0;
     }
 
     Sim->ParticleCount = ParticleCount;

@@ -44,6 +44,8 @@ typedef void (APIENTRY *gl_tex_storage_2d)(GLenum, GLsizei, GLenum, GLsizei, GLs
 typedef void (APIENTRY *gl_tex_storage_3d)(GLenum, GLsizei, GLenum, GLsizei, GLsizei, GLsizei);
 typedef void (APIENTRY *gl_memory_barrier)(GLbitfield);
 typedef void (APIENTRY *gl_active_texture)(GLenum);
+typedef void (APIENTRY *gl_draw_arrays_instanced)(GLenum, GLint, GLsizei, GLsizei);
+typedef void (APIENTRY *gl_vertex_attrib_divisor)(GLuint, GLuint);
 
 static gl_gen_buffers glGenBuffers = 0;
 static gl_bind_buffer glBindBuffer = 0;
@@ -78,6 +80,8 @@ static gl_tex_storage_2d glTexStorage2D = 0;
 static gl_tex_storage_3d glTexStorage3D = 0;
 static gl_memory_barrier glMemoryBarrier = 0;
 static gl_active_texture glActiveTexture = 0;
+static gl_draw_arrays_instanced glDrawArraysInstanced = 0;
+static gl_vertex_attrib_divisor glVertexAttribDivisor = 0;
 
 static void
 LoadOpenGLFunctions()
@@ -115,6 +119,8 @@ LoadOpenGLFunctions()
     glTexStorage3D = (gl_tex_storage_3d)SDL_GL_GetProcAddress("glTexStorage3D");
     glMemoryBarrier = (gl_memory_barrier)SDL_GL_GetProcAddress("glMemoryBarrier");
     glActiveTexture = (gl_active_texture)SDL_GL_GetProcAddress("glActiveTexture");
+	glDrawArraysInstanced = (gl_draw_arrays_instanced)SDL_GL_GetProcAddress("glDrawArraysInstanced");
+	glVertexAttribDivisor = (gl_vertex_attrib_divisor)SDL_GL_GetProcAddress("glVertexAttribDivisor");
 }
 
 enum timer_names {
@@ -144,7 +150,7 @@ main(int argc, char **argv)
 {
     SDL_Init(SDL_INIT_VIDEO);
 
-    SDL_Window *Window = SDL_CreateWindow("fluid", SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED, 512, 512, SDL_WINDOW_OPENGL | SDL_WINDOW_RESIZABLE);
+    SDL_Window *Window = SDL_CreateWindow("fluid", SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED, 1024, 1024, SDL_WINDOW_OPENGL | SDL_WINDOW_RESIZABLE);
 
     SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_ES);
     SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 3);

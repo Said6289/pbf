@@ -6,6 +6,9 @@ static const char *VertexShaderCode = R"glsl(
     layout(location = 0) in vec2 position;
     layout(location = 1) in vec2 uv;
 
+	flat out vec2 pos;
+	flat out float radius;
+
     void main()
     {
         gl_Position = vec4(position.x, position.y, 0.0, 1.0);
@@ -18,11 +21,43 @@ static const char *FragmentShaderCode = R"glsl(
     precision mediump float;
 
     out vec4 FragColor;
+	flat in vec2 pos;
+	flat in float radius;
 
     void main()
     {
-        FragColor = vec4(0.0, 1.0, 1.0, 1.0);
+		vec2 p = (vec2(gl_FragCoord.xy) / 1024.0) * 2.0 - 1.0;
+		if (length(p - pos) < radius) {
+        	FragColor = vec4(0.0, 1.0, 1.0, 1.0);
+		} else {
+        	FragColor = vec4(0.0, 0.0, 0.0, 0.0);
+		}
     }
+)glsl";
+
+static const char *ParticleVertexShaderCode = R"glsl(
+	#version 310 es
+
+	precision mediump float;
+
+	layout(location = 0) in vec2 position;
+
+	flat out vec2 pos;
+	flat out float radius;
+
+	void main()
+	{
+		float WorldScale = 1.0 / 10.0;
+		float ParticleRadius = 0.0125;
+
+		vec2 p = vec2(gl_VertexID % 2, gl_VertexID / 2) - 0.5;
+		p = 2.0 * ParticleRadius * p + position;
+
+		pos = position * 2.0 * WorldScale;
+		radius = 2.0 * WorldScale * ParticleRadius;
+
+		gl_Position = vec4(2.0 * WorldScale * p, 0.0, 1.0);
+	}
 )glsl";
 
 static const char *TextVertShaderCode = R"glsl(
@@ -303,16 +338,29 @@ InitializeOpenGL(opengl *OpenGL, hash_grid HashGrid, int ParticleCount, particle
     glAttachShader(OpenGL->TextureProgram, TextureFragShader);
     LinkProgram(OpenGL->TextureProgram);
 
-    GLuint VBO;
-    glGenBuffers(1, &VBO);
-    glBindBuffer(GL_ARRAY_BUFFER, VBO);
-    OpenGL->VBO = VBO;
+    GLuint ParticleVertexShader = CompileShader(GL_VERTEX_SHADER, ParticleVertexShaderCode);
+    OpenGL->ParticleProgram = glCreateProgram();
+    glAttachShader(OpenGL->ParticleProgram, ParticleVertexShader);
+    glAttachShader(OpenGL->ParticleProgram, FragmentShader);
+    LinkProgram(OpenGL->ParticleProgram);
+
+    glGenBuffers(1, &OpenGL->VBO);
+    glBindBuffer(GL_ARRAY_BUFFER, OpenGL->VBO);
 
     glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, sizeof(vertex), (const GLvoid *)offsetof(vertex, P));
     glEnableVertexAttribArray(0);
 
     glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, sizeof(vertex), (const GLvoid *)offsetof(vertex, UV));
     glEnableVertexAttribArray(1);
+
+	glGenBuffers(1, &OpenGL->ParticleVBO);
+	glBindBuffer(GL_ARRAY_BUFFER, OpenGL->ParticleVBO);
+
+    glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, sizeof(particle), (const GLvoid *)offsetof(particle, P));
+    glEnableVertexAttribArray(0);
+	glVertexAttribDivisor(0, 1);
+
+    glBindBuffer(GL_ARRAY_BUFFER, OpenGL->VBO);
 
     OpenGL->VertexCapacity = 6 * 8192;
     OpenGL->VertexSize = 0;
@@ -796,6 +844,36 @@ RenderMarchingSquares(opengl *OpenGL, sim *Sim, bool RenderContour)
 }
 
 static void
+RenderParticles(opengl *OpenGL, sim *Sim)
+{
+	vertex Verts[6];
+
+	Verts[0].P = V2(-1, -1);
+	Verts[0].UV = V2(0, 0);
+
+	Verts[1].P = V2(1, -1);
+	Verts[1].UV = V2(1, 0);
+
+	Verts[2].P = V2(1, 1);
+	Verts[2].UV = V2(1, 1);
+
+	Verts[3].P = V2(1, 1);
+	Verts[3].UV = V2(1, 1);
+
+	Verts[4].P = V2(-1, 1);
+	Verts[4].UV = V2(0, 1);
+
+	Verts[5].P = V2(-1, -1);
+	Verts[5].UV = V2(0, 0);
+
+	glBindBuffer(GL_ARRAY_BUFFER, OpenGL->ParticleVBO);
+	glBufferData(GL_ARRAY_BUFFER, sizeof(particle) * Sim->ParticleCount, Sim->Particles, GL_STREAM_DRAW);
+
+	glUseProgram(OpenGL->ParticleProgram);
+	glDrawArraysInstanced(GL_TRIANGLE_STRIP, 0, 4, Sim->ParticleCount);
+}
+
+static void
 Render(sim *Sim, opengl *OpenGL, float Width, float Height, bool RenderContour)
 {
     glViewport(0, 0, Width, Height);
@@ -851,7 +929,8 @@ Render(sim *Sim, opengl *OpenGL, float Width, float Height, bool RenderContour)
     GlUnitsPerMeter.x = GlW / WorldW;
     GlUnitsPerMeter.y = GlH / WorldH;
 
-    RenderMarchingSquares(OpenGL, Sim, RenderContour);
+    RenderParticles(OpenGL, Sim);
+    //RenderMarchingSquares(OpenGL, Sim, RenderContour);
 
     OpenGL->VertexSize = 0;
 
